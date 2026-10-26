@@ -14,3 +14,12 @@ export type {
 } from './decisions/index.js';
 export type { GatewayRequest, GatewayResponse, RequestMeta } from './types/index.js';
 export { VeylithError, PolicyBlockedError, UpstreamError, ConfigError } from './errors/index.js';
+export type {
+  InspectionStage,
+  ThreatCategory,
+  PolicyAction,
+  RiskEvidence,
+  InspectionContext,
+  SecurityInspectionInput,
+  SecurityInspectionResult,
+} from './inspection/index.js';

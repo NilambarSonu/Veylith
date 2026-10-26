@@ -1,30 +1,28 @@
-# Local Development & Setup Guide
+# Local Development & Setup Guide (Phase 1)
 
-This guide walks you through setting up, running, and verifying the Veylith development environment locally.
+This guide walks you through setting up, configuring, and verifying the Veylith Phase 1 environment locally.
 
 ---
 
 ## 1. Prerequisites
 
 - **Node.js**: Active LTS (`>=20.0.0`, tested on `v24.21.0`).
-- **pnpm**: `pnpm` (`>=9.0.0` or `12.x`, tested on `12.10.1`).
+- **pnpm**: `pnpm` (`12.x` or Corepack, tested on `12.10.1`).
 - **Operating System**: macOS, Linux, or WSL2.
 
 ---
 
-## 2. Installation
-
-Clone and install dependencies:
+## 2. Installation & Workspace Setup
 
 ```bash
-# Clone the repository (if not already local)
+# Clone the repository
 git clone https://github.com/NilambarSonu/Veylith.git
 cd Veylith
 
-# Switch to the development branch
-git checkout dev/phase-0-foundation
+# Switch to the Phase 1 development branch
+git checkout dev/phase-1-security-engine
 
-# Install monorepo dependencies
+# Install all workspace dependencies
 pnpm install
 ```
 
@@ -38,23 +36,66 @@ Copy the example environment configuration:
 cp .env.example .env
 ```
 
-Default configuration in `.env`:
+### Key Environment Variables
 
-```ini
-NODE_ENV=development
-GATEWAY_HOST=127.0.0.1
-GATEWAY_PORT=8787
-UPSTREAM_MCP_URL=http://127.0.0.1:8788/mcp
-LOG_LEVEL=info
-REDACT_SECRETS=true
-BLOCKED_TOOLS=restricted_demo_tool
-```
-
-_(Note: Never commit `.env` or any real API keys to version control.)_
+| Variable                  | Default                     | Purpose                                                        |
+| :------------------------ | :-------------------------- | :------------------------------------------------------------- |
+| `GATEWAY_HOST`            | `127.0.0.1`                 | Local network binding interface.                               |
+| `GATEWAY_PORT`            | `8787`                      | Port for the Veylith Security Gateway.                         |
+| `UPSTREAM_MCP_URL`        | `http://127.0.0.1:8788/mcp` | Upstream target MCP server endpoint.                           |
+| `META_AI_MODE`            | `mock`                      | Semantic model operating mode (`mock`, `live`, or `disabled`). |
+| `META_MODEL`              | `muse-spark-1.3`            | Model identifier for Meta Muse.                                |
+| `META_MODEL_API_BASE_URL` | `https://api.meta.ai/v1`    | Meta Model API base URL.                                       |
+| `META_MODEL_API_KEY`      | _(blank)_                   | Backend API key for live inference. Never committed!           |
+| `FAIL_CLOSED`             | `false`                     | If true, model errors or review outcomes trigger blocks.       |
+| `BLOCKED_TOOLS`           | `restricted_demo_tool`      | Comma-separated statically blocked tool names.                 |
 
 ---
 
-## 4. Multi-Process Local Testing
+## 4. Quality Gates & Testing Commands
+
+Run all quality checks from the workspace root:
+
+```bash
+# 1. Strict TypeScript type check across all 6 packages & apps
+pnpm typecheck
+
+# 2. Compile TypeScript packages to dist/
+pnpm build
+
+# 3. Lint codebase with ESLint
+pnpm lint
+
+# 4. Verify Prettier code style
+pnpm format:check
+
+# 5. Run full test suite (61 tests across 11 suites)
+pnpm test:all
+
+# 6. Run security benchmark evaluation specifically
+pnpm vitest run tests/integration/security-engine.test.ts
+```
+
+---
+
+## 5. Live Meta Muse Smoke Test
+
+By default, all automated tests use `META_AI_MODE=mock` to ensure zero external cost and 100% offline reproducibility.
+
+To manually test live connectivity to Meta Muse with a real API key:
+
+```bash
+META_MODEL_API_KEY="your-api-key" META_AI_MODE="live" pnpm smoke:meta
+```
+
+**Safety Invariants**:
+
+- The smoke test enforces an application-level cap of **maximum 2 requests** and **$0.05 USD budget cap**.
+- Reports exact token usage and estimated spend upon completion.
+
+---
+
+## 6. Multi-Process Local Testing
 
 To manually observe request flow across the client, gateway, and upstream server, open three separate terminal windows:
 
@@ -64,15 +105,15 @@ To manually observe request flow across the client, gateway, and upstream server
 pnpm --filter @veylith/benign-mcp-server start
 ```
 
-_Output will indicate:_ `[benign-mcp-server] Listening on http://127.0.0.1:8788/mcp`
+_Listens on `http://127.0.0.1:8788/mcp`._
 
-### Terminal 2: Launch Veylith Gateway
+### Terminal 2: Launch Veylith Security Gateway
 
 ```bash
 pnpm --filter @veylith/gateway start
 ```
 
-_Output will indicate:_ `{"level":"info","msg":"Veylith gateway started","data":{"port":8787,...}}`
+_Listens on `http://127.0.0.1:8787/mcp`._
 
 ### Terminal 3: Run Test Client via Gateway
 
@@ -80,50 +121,4 @@ _Output will indicate:_ `{"level":"info","msg":"Veylith gateway started","data":
 pnpm --filter @veylith/test-client start:via-gateway
 ```
 
-_The client will connect to port 8787, list proxied tools, execute `echo`, execute `add`, and attempt `restricted_demo_tool` (which is blocked by policy with an explainable error)._
-
-To run the client directly against the server (bypassing gateway):
-
-```bash
-pnpm --filter @veylith/test-client start
-```
-
----
-
-## 5. Automated Verification & Quality Gates
-
-Run all quality checks from the workspace root:
-
-```bash
-# 1. Typecheck all workspace packages
-pnpm typecheck
-
-# 2. Build TypeScript outputs
-pnpm build
-
-# 3. Lint the codebase
-pnpm lint
-
-# 4. Check code formatting
-pnpm format:check
-
-# 5. Run in-memory unit tests
-pnpm test
-
-# 6. Run end-to-end integration tests (spawns server & gateway)
-pnpm test:integration
-
-# 7. Run full test suite (unit + integration)
-pnpm test:all
-```
-
----
-
-## 6. Process Shutdown & Cleanup
-
-- Use `Ctrl+C` to cleanly stop any running process.
-- The servers implement graceful signal handlers (`SIGINT`, `SIGTERM`) ensuring no orphaned background processes remain bound to ports 8787 or 8788.
-- To clean build artifacts:
-  ```bash
-  pnpm clean
-  ```
+_The client will connect through the gateway, list discovered clean tools, execute `echo` and `add`, and verify policy enforcement on `restricted_demo_tool`._

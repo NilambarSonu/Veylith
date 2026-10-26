@@ -6,6 +6,10 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "dependencies": {
+    "@veylith/core": "workspace:*",
+    "zod": "^4.2.0"
+  },
   "scripts": {
     "build": "tsc --build",
     "typecheck": "tsc --noEmit",

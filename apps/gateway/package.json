@@ -8,6 +8,7 @@
     "@modelcontextprotocol/client": "^2.4.0",
     "@veylith/core": "workspace:*",
     "@veylith/policy-engine": "workspace:*",
+    "@veylith/meta-adapter": "workspace:*",
     "zod": "^4.2.0"
   },
   "scripts": {

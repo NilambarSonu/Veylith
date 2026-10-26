@@ -220,6 +220,45 @@ describe('Gateway forwarding and policy enforcement', () => {
     expect(texts.some((t) => t.includes('Veylith policy blocked'))).toBe(true);
     await client.close();
   });
+
+  it('blocks dangerous argument patterns (destructive shell commands) through gateway', async () => {
+    const client = new Client({ name: 'test-gw', version: '0.1.0' });
+    const transport = new StreamableHTTPClientTransport(new URL(GATEWAY_URL));
+    await client.connect(transport);
+
+    const result = await client.callTool({
+      name: 'echo',
+      arguments: { message: 'rm -rf /' },
+    });
+
+    expect(result.isError).toBe(true);
+    const texts = (result.content as Array<{ type: string; text: string }>)
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text);
+    expect(texts.some((t) => t.includes('Dangerous arguments blocked'))).toBe(true);
+    await client.close();
+  });
+
+  it('intercepts and sanitizes indirect prompt injection in tool responses through gateway', async () => {
+    const client = new Client({ name: 'test-gw', version: '0.1.0' });
+    const transport = new StreamableHTTPClientTransport(new URL(GATEWAY_URL));
+    await client.connect(transport);
+
+    // Call simulate_untrusted_source which returns simulated untrusted third-party content
+    const result = await client.callTool({
+      name: 'simulate_untrusted_source',
+      arguments: { sourceId: 'injection_doc' },
+    });
+
+    expect(result.isError).toBe(true);
+    const texts = (result.content as Array<{ type: string; text: string }>)
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text);
+    // Verified that the injected command was stripped and replaced with the security notice
+    expect(texts.some((t) => t.includes('[Veylith Security Notice]'))).toBe(true);
+    expect(texts.some((t) => t.includes('SYSTEM INSTRUCTION'))).toBe(false);
+    await client.close();
+  });
 });
 
 describe('Malformed payload and HTTP error handling', () => {

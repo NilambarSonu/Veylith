@@ -1,26 +1,15 @@
 /**
- * Veylith Gateway — MCP Security Gateway (Phase 0 Proof of Concept)
+ * Veylith Gateway — MCP Security Gateway (Phase 1: Hybrid AI-Native Security Engine)
  *
- * Architecture: MCP bridge gateway.
- * The gateway presents itself as an MCP server to downstream clients, and
- * acts as an MCP client toward the upstream server. This is NOT a transparent
- * HTTP proxy — it terminates the MCP protocol on both sides.
+ * Architecture: MCP bridge gateway with multi-tier security inspection:
+ *   - Tier 1: Deterministic security invariants (unoverrideable hard rules)
+ *   - Tier 2: Heuristic risk screener (<0.1ms triage of clean vs ambiguous payloads)
+ *   - Tier 3: Meta Muse semantic model (evaluates complex ambiguous prompts)
  *
- * What this preserves:
- *   ✓ JSON-RPC request/response semantics
- *   ✓ Tool listing, tool calling, and results
- *   ✓ Protocol initialization and capability negotiation
- *   ✓ Error propagation
- *
- * What this does NOT preserve (Phase 0 limitations):
- *   ✗ SSE streaming passthrough (requests are fully buffered)
- *   ✗ Server-initiated notifications to clients
- *   ✗ Session state across requests (stateless per-request model)
- *   ✗ Resource subscriptions
- *   ✗ Prompt templates passthrough
- *
- * The gateway intercepts tools/call requests to apply policy rules
- * before forwarding to the upstream server.
+ * Security Inspection Stages:
+ *   1. Discovery Inspection (tools/list metadata & tool description poisoning)
+ *   2. Argument Inspection (tools/call parameters & destructive execution)
+ *   3. Response Inspection (tools/call outputs & indirect prompt injection)
  */
 
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
@@ -29,14 +18,15 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createServer } from 'node:http';
 import { loadConfig } from './config/index.js';
 import { Logger } from './observability/logger.js';
-import { PolicyEvaluator } from '@veylith/policy-engine';
-import type { PolicyRule } from '@veylith/core';
+import { SecurityInspectionEngine } from '@veylith/policy-engine';
+import { MetaMuseSecurityAdapter } from '@veylith/meta-adapter';
+import type { PolicyRule, InspectionContext } from '@veylith/core';
 import * as z from 'zod/v4';
 
 const config = loadConfig();
 const logger = new Logger(config.logLevel, config.redactSecrets);
 
-// Build policy rules from configuration
+// Build static policy rules from configuration (e.g. BLOCKED_TOOLS)
 const policyRules: PolicyRule[] = config.blockedTools.map((toolName, idx) => ({
   id: `block-tool-${idx}`,
   description: `Block calls to tool: ${toolName}`,
@@ -46,7 +36,19 @@ const policyRules: PolicyRule[] = config.blockedTools.map((toolName, idx) => ({
   enabled: true,
 }));
 
-const policyEvaluator = new PolicyEvaluator(policyRules, 'allow');
+// Instantiate Meta Muse adapter
+const metaAdapter = new MetaMuseSecurityAdapter({
+  mode: config.metaAiMode,
+  apiBaseUrl: config.metaApiBaseUrl,
+  apiKey: config.metaApiKey,
+  model: config.metaModel,
+});
+
+// Instantiate Hybrid Security Inspection Engine
+const securityEngine = new SecurityInspectionEngine(policyRules, metaAdapter, {
+  failClosed: config.failClosed,
+  policyVersion: 'v1.0.0',
+});
 
 /**
  * Create an MCP client connected to the upstream server.
@@ -61,9 +63,6 @@ async function createUpstreamClient(): Promise<Client> {
 
 /**
  * Gateway server factory — creates an McpServer that proxies to upstream.
- *
- * The factory pattern means each HTTP request gets a fresh server instance,
- * which in turn creates a fresh upstream client connection.
  */
 const handler = createMcpHandler(async () => {
   const server = new McpServer({
@@ -78,7 +77,19 @@ const handler = createMcpHandler(async () => {
     upstreamClient = await createUpstreamClient();
     const { tools } = await upstreamClient.listTools();
 
-    for (const tool of tools) {
+    // Stage 1: Discovery Inspection (Tool-description poisoning & static block rules)
+    const discoveryOutcome = await securityEngine.inspectDiscovery(tools);
+
+    for (const blocked of discoveryOutcome.blockedTools) {
+      logger.warn('Tool blocked from discovery (tool-description poisoning or static rule)', {
+        toolName: blocked.name,
+        threatCategory: blocked.threatCategory,
+        reason: blocked.reason,
+      });
+    }
+
+    // Register clean tools on the gateway
+    for (const tool of discoveryOutcome.cleanTools) {
       const toolName = tool.name;
 
       server.registerTool(
@@ -91,37 +102,50 @@ const handler = createMcpHandler(async () => {
         async (args) => {
           const requestId = crypto.randomUUID();
           const start = performance.now();
-
-          // Evaluate policy
-          const policyResult = policyEvaluator.evaluate({
-            method: 'tools/call',
-            toolName,
-          });
-
-          logger.info('Policy evaluation', {
+          const ctx: InspectionContext = {
             requestId,
+            stage: 'call_arguments',
             method: 'tools/call',
             toolName,
-            decision: policyResult.decision,
-            reason: policyResult.reason,
-            evaluationDurationMs: policyResult.evaluationDurationMs,
+            timestamp: new Date().toISOString(),
+          };
+
+          // Stage 2: Argument Inspection (Deterministic + Tier 2 Screener + Meta Muse)
+          const argInspection = await securityEngine.inspectArguments(
+            ctx,
+            toolName,
+            (args as Record<string, unknown>) ?? {},
+          );
+
+          logger.info('Argument security evaluation', {
+            requestId,
+            toolName,
+            action: argInspection.action,
+            threatCategory: argInspection.threatCategory,
+            origin: argInspection.origin,
+            durationMs: argInspection.evaluationDurationMs,
           });
 
-          if (policyResult.decision === 'block') {
+          if (
+            argInspection.action === 'block' ||
+            (argInspection.action === 'review' && config.failClosed)
+          ) {
             const durationMs = Math.round((performance.now() - start) * 100) / 100;
-            logger.warn('Request blocked by policy', {
+            logger.warn('Tool call blocked by security engine', {
               requestId,
               toolName,
-              ruleId: policyResult.matchedRule?.id,
+              threatCategory: argInspection.threatCategory,
+              explanation: argInspection.explanation,
+              ruleId: argInspection.ruleId,
               durationMs,
             });
 
-            // Return as a tool error result (protocol-compatible)
+            // Return as protocol-compatible error result
             return {
               content: [
                 {
                   type: 'text' as const,
-                  text: `Veylith policy blocked this call: ${policyResult.reason}`,
+                  text: `Veylith policy blocked this call: ${argInspection.explanation}`,
                 },
               ],
               isError: true,
@@ -153,22 +177,47 @@ const handler = createMcpHandler(async () => {
             }
 
             try {
-              const result = await forwardClient.callTool({
+              const rawResult = await forwardClient.callTool({
                 name: toolName,
                 arguments: args as Record<string, unknown>,
               });
 
+              // Stage 3: Tool Response Inspection (Indirect prompt injection & secret leaks)
+              const respCtx: InspectionContext = {
+                requestId,
+                stage: 'call_response',
+                method: 'tools/call',
+                toolName,
+                timestamp: new Date().toISOString(),
+              };
+
+              const respOutcome = await securityEngine.inspectResponse(
+                respCtx,
+                toolName,
+                (rawResult.content as Array<{ type: string; text?: string }>) ?? [],
+              );
+
+              if (respOutcome.isRedacted) {
+                logger.warn('Tool response sanitized by security engine', {
+                  requestId,
+                  toolName,
+                  threatCategory: respOutcome.result.threatCategory,
+                  explanation: respOutcome.result.explanation,
+                });
+              }
+
               const durationMs = Math.round((performance.now() - start) * 100) / 100;
-              logger.info('Request forwarded successfully', {
+              logger.info('Request completed', {
                 requestId,
                 toolName,
-                decision: 'allow',
+                action: 'allow',
+                isRedacted: respOutcome.isRedacted,
                 durationMs,
               });
 
               return {
-                content: result.content as Array<{ type: 'text'; text: string }>,
-                isError: result.isError ?? false,
+                content: respOutcome.sanitizedContent as Array<{ type: 'text'; text: string }>,
+                isError: (rawResult.isError ?? false) || respOutcome.isRedacted,
               };
             } finally {
               await forwardClient.close().catch(() => {});
@@ -271,6 +320,8 @@ httpServer.listen(config.port, config.host, () => {
     port: config.port,
     upstreamMcpUrl: config.upstreamMcpUrl,
     blockedTools: config.blockedTools as unknown as string[],
+    metaAiMode: config.metaAiMode,
+    metaModel: config.metaModel,
     policyRuleCount: policyRules.length,
   });
 });

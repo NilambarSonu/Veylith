@@ -1,66 +1,78 @@
-# Veylith Protocol & Transport Compatibility
+# Veylith Protocol & Transport Compatibility (Phase 1)
 
 ## Overview
 
-Veylith targets the modern Model Context Protocol (MCP) specification using the official TypeScript SDK v2 split packages (`@modelcontextprotocol/server` and `@modelcontextprotocol/client`).
+Veylith targets the modern Model Context Protocol (MCP) specification using official TypeScript SDK v2 packages (`@modelcontextprotocol/server` & `@modelcontextprotocol/client`).
 
 ---
 
-## Specification & SDK Versions
+## Specification & Package Matrix
 
-| Dimension             | Value / Specification                  | Notes                          |
-| :-------------------- | :------------------------------------- | :----------------------------- |
-| **MCP Specification** | 2026-07-28 revision                    | Modern protocol standard       |
-| **Server SDK**        | `@modelcontextprotocol/server` ^2.4.0  | Official modular SDK v2        |
-| **Client SDK**        | `@modelcontextprotocol/client` ^2.4.0  | Official modular SDK v2        |
-| **Runtime Target**    | Node.js >= 20.0.0 (tested on v24.21.0) | ES2022 / Node16 ESM resolution |
-| **Validation**        | Zod ^4.2.0                             | Schema validation              |
-
----
-
-## Transport Support Matrix
-
-| Transport              | Phase 0 Status     | Implementation Details                                                                                                |
-| :--------------------- | :----------------- | :-------------------------------------------------------------------------------------------------------------------- |
-| **Streamable HTTP**    | **Supported**      | Default primary transport. Node.js `http` server bridged to web-standard `Request`/`Response` via `createMcpHandler`. |
-| **stdio**              | Planned (Phase 1)  | Targeted for local CLI-based agents (e.g., Claude Code, Cursor, terminal agents).                                     |
-| **Request-Scoped SSE** | Partial (Buffered) | Requests and responses are buffered per HTTP exchange; streaming token chunks are not yet piped incrementally.        |
-| **Legacy HTTP+SSE**    | Not Supported      | Deprecated in MCP specification; explicitly out of scope.                                                             |
+| Dimension             | Value / Specification                     | Notes                          |
+| :-------------------- | :---------------------------------------- | :----------------------------- |
+| **MCP Specification** | 2026-07-28 revision                       | Modern protocol standard       |
+| **Server SDK**        | `@modelcontextprotocol/server` ^2.4.0     | Official modular SDK v2        |
+| **Client SDK**        | `@modelcontextprotocol/client` ^2.4.0     | Official modular SDK v2        |
+| **Runtime Target**    | Node.js `>=20.0.0` (tested on `v24.21.0`) | ES2022 / Node16 ESM resolution |
+| **Validation**        | Zod `^4.2.0`                              | Schema validation              |
 
 ---
 
-## Supported MCP Capabilities (Phase 0)
+## MCP Protocol Lifecycle & Enforcement Points
 
-### 1. Protocol Handshake & Initialization
+Veylith enforces security policies strictly within standard MCP protocol semantics without introducing non-compliant envelopes:
 
-- Implements standard `initialize` JSON-RPC handshake.
-- Advertises gateway server capabilities (`tools: {}`).
-- Responds to `notifications/initialized`.
+### 1. Discovery Filtering (`tools/list`)
 
-### 2. Tool Listing (`tools/list`)
+- Upstream tools are fetched via MCP client.
+- Scanned for **tool-description poisoning** (embedded directives, role spoofing, credential mandates).
+- Poisoned tools are dropped from the downstream tool registration.
+- Downstream clients receive a standard, valid `tools/list` response containing only verified clean tools.
 
-- Queries upstream server via MCP client.
-- Dynamically mirrors upstream tool schemas and descriptions downstream.
-- Proxies tool definitions to the client.
+### 2. Argument Interception (`tools/call`)
 
-### 3. Tool Calling (`tools/call`)
+- When a client executes `tools/call`, the gateway inspects arguments before forwarding.
+- If blocked (e.g. `rm -rf /`, SQL `DROP TABLE`, or static rule match):
+  - Returns a standard MCP tool response:
+    ```json
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "Veylith policy blocked this call: Dangerous arguments blocked: Destructive filesystem deletion (rm -rf / or *)"
+        }
+      ],
+      "isError": true
+    }
+    ```
+  - Upstream is never contacted.
+  - The client receives an explainable, protocol-compliant error result rather than an opaque transport disconnection.
 
-- Intercepts incoming tool execution requests.
-- Validates tool presence and arguments.
-- Applies deterministic policy evaluation prior to any upstream transmission.
-- Propagates tool results with proper JSON-RPC correlation IDs.
+### 3. Response Sanitization (`tools/call` output)
 
-### 4. Protocol-Compatible Error Reporting
-
-- Policy rejections return valid tool results with `isError: true` and descriptive security reasons rather than opaque socket disconnects or non-standard HTTP payloads. This prevents client crashes and provides explainable security feedback.
-- Network and upstream faults return formatted error results (`isError: true`).
-- Malformed HTTP payloads are rejected safely with standard HTTP 400/406/500 without crashing the gateway.
+- When upstream returns a tool execution result, the gateway inspects all content blocks before returning downstream.
+- If indirect prompt injection or credential leakage is detected:
+  - The malicious text is replaced with a clean security notice:
+    ```json
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "[Veylith Security Notice]: Tool response from 'simulate_untrusted_source' contained potential prompt injection instructions and was redacted to protect the agent reasoning loop."
+        }
+      ],
+      "isError": true
+    }
+    ```
+  - This neutralizes the attack before it enters the agent's context window.
 
 ---
 
-## Known Protocol Limitations (Phase 0)
+## Supported Transports
 
-1. **No Transparent SSE Streaming**: Responses are gathered and returned per exchange. Long-running streaming output from tools is buffered before delivery.
-2. **No Server-Initiated Notifications**: Upstream server notifications (such as `notifications/tools/list_changed`) are not propagated downstream to clients during Phase 0.
-3. **No Resource or Prompt Passthrough**: `resources/list`, `resources/read`, and `prompts/list` are not yet bridged. Phase 0 focuses exclusively on the critical tool-call boundary.
-4. **Single-Upstream Routing**: The gateway binds to a single upstream server via `UPSTREAM_MCP_URL`. Multi-server routing and tool namespace prefixing are planned for Phase 2.
+| Transport              | Phase 1 Status          | Details                                                                                             |
+| :--------------------- | :---------------------- | :-------------------------------------------------------------------------------------------------- |
+| **Streamable HTTP**    | **Supported (Default)** | Node.js `http` server bridged to web-standard `Request`/`Response` via `createMcpHandler`.          |
+| **stdio**              | Planned (Phase 2)       | Targeted for CLI agents (Claude Code, Cursor).                                                      |
+| **Request-Scoped SSE** | Buffered                | Requests and responses are buffered per exchange. Streaming token pass-through planned for Phase 2. |
+| **Legacy HTTP+SSE**    | Not Supported           | Deprecated in MCP specification; explicitly out of scope.                                           |

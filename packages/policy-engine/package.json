@@ -7,7 +7,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@veylith/core": "workspace:*"
+    "@veylith/core": "workspace:*",
+    "@veylith/meta-adapter": "workspace:*"
   },
   "scripts": {
     "build": "tsc --build",

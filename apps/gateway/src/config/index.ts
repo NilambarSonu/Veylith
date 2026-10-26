@@ -5,6 +5,8 @@
  * values cause the process to exit with a clear error message.
  */
 
+import type { MetaAiMode } from '@veylith/meta-adapter';
+
 export interface GatewayConfig {
   readonly host: string;
   readonly port: number;
@@ -13,6 +15,11 @@ export interface GatewayConfig {
   readonly logLevel: string;
   readonly redactSecrets: boolean;
   readonly requestTimeoutMs: number;
+  readonly metaAiMode: MetaAiMode;
+  readonly metaApiBaseUrl: string;
+  readonly metaApiKey?: string;
+  readonly metaModel: string;
+  readonly failClosed: boolean;
 }
 
 export function loadConfig(): GatewayConfig {
@@ -23,6 +30,16 @@ export function loadConfig(): GatewayConfig {
   const logLevel = process.env['LOG_LEVEL'] ?? 'info';
   const redactSecrets = process.env['LOG_REDACT_SECRETS'] !== 'false';
   const requestTimeoutMs = parseInt(process.env['REQUEST_TIMEOUT_MS'] ?? '30000', 10);
+
+  const rawMode = process.env['META_AI_MODE'] ?? 'mock';
+  const metaAiMode: MetaAiMode = ['mock', 'live', 'disabled'].includes(rawMode)
+    ? (rawMode as MetaAiMode)
+    : 'mock';
+
+  const metaApiBaseUrl = process.env['META_MODEL_API_BASE_URL'] ?? 'https://api.meta.ai/v1';
+  const metaApiKey = process.env['META_MODEL_API_KEY'];
+  const metaModel = process.env['META_MODEL'] ?? 'muse-spark-1.3';
+  const failClosed = process.env['FAIL_CLOSED'] === 'true';
 
   if (isNaN(port) || port < 1 || port > 65535) {
     console.error(`[config] Invalid GATEWAY_PORT: ${process.env['GATEWAY_PORT']}`);
@@ -42,5 +59,10 @@ export function loadConfig(): GatewayConfig {
     logLevel,
     redactSecrets,
     requestTimeoutMs,
+    metaAiMode,
+    metaApiBaseUrl,
+    metaApiKey,
+    metaModel,
+    failClosed,
   };
 }
