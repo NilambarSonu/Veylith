@@ -1,0 +1,38 @@
+{
+  "name": "veylith",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An AI-native security gateway for MCP agents, powered by Meta Muse",
+  "author": "Nilambar Behera",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format:check": "prettier --check .",
+    "format": "prettier --write .",
+    "test": "vitest run packages/ apps/",
+    "test:integration": "vitest run tests/integration",
+    "test:all": "vitest run",
+    "dev": "echo 'See docs/development/local-setup.md for multi-process dev instructions'",
+    "clean": "pnpm -r run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@modelcontextprotocol/server": "^2.4.0",
+    "@types/node": "^22.13.0",
+    "eslint": "^9.39.5",
+    "prettier": "^3.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.24.0",
+    "vitest": "^3.2.0",
+    "zod": "^4.2.0"
+  }
+}
