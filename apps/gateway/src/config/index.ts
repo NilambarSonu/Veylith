@@ -37,6 +37,8 @@ export interface GatewayConfig {
 
 export function loadConfig(): GatewayConfig {
   const host = process.env['GATEWAY_HOST'] ?? '127.0.0.1';
+  if (!['127.0.0.1', '::1', 'localhost'].includes(host))
+    throw new Error('Local client labels are not authentication: gateway must bind to loopback');
   const port = parseInt(process.env['GATEWAY_PORT'] ?? '8787', 10);
   const upstreamMcpUrl = process.env['UPSTREAM_MCP_URL'] ?? 'http://127.0.0.1:8788/mcp';
   const blockedToolsRaw = process.env['BLOCKED_TOOLS'] ?? 'restricted_demo_tool';

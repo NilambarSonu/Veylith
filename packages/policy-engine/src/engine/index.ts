@@ -373,8 +373,11 @@ export class SecurityInspectionEngine {
         payload: inspectTarget,
         stage: 'discovery',
         policyVersion: this.policyVersion,
-        modelVersion: this.metaAdapter.model,
+        modelVersion: `${this.metaAdapter.mode}:${this.metaAdapter.model}`,
+        baselineRevision: this.capabilityRegistry.baselineRevision,
         clientId: clientIdentity,
+        serverId,
+        sessionId,
         toolName: tool.name,
       });
       const cached = this.cache.get(cacheKey);
@@ -430,7 +433,12 @@ export class SecurityInspectionEngine {
         modelId: this.metaAdapter.model,
         evaluationDurationMs: modelResult.durationMs,
         tokenUsage: modelResult.tokenUsage,
-        origin: modelResult.mode === 'mock' ? 'mock' : 'live',
+        origin:
+          modelResult.mode === 'mock'
+            ? 'mock'
+            : modelResult.mode === 'disabled'
+              ? 'deterministic'
+              : 'live',
         confidence: modelResult.confidence,
         isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
       };
@@ -617,8 +625,11 @@ export class SecurityInspectionEngine {
       payload: serializedArgs,
       stage: 'call_arguments',
       policyVersion: this.policyVersion,
-      modelVersion: this.metaAdapter.model,
+      modelVersion: `${this.metaAdapter.mode}:${this.metaAdapter.model}`,
+      baselineRevision: this.capabilityRegistry.baselineRevision,
       clientId: ctx.clientIdentity,
+      serverId: ctx.serverId,
+      sessionId: ctx.sessionId,
       toolName,
     });
     const cached = this.cache.get(cacheKey);
@@ -661,7 +672,12 @@ export class SecurityInspectionEngine {
       modelId: this.metaAdapter.model,
       evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
       tokenUsage: modelResult.tokenUsage,
-      origin: modelResult.mode === 'mock' ? 'mock' : 'live',
+      origin:
+        modelResult.mode === 'mock'
+          ? 'mock'
+          : modelResult.mode === 'disabled'
+            ? 'deterministic'
+            : 'live',
       confidence: modelResult.confidence,
       isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
     };
@@ -744,8 +760,11 @@ export class SecurityInspectionEngine {
       payload: textPayload,
       stage: 'call_response',
       policyVersion: this.policyVersion,
-      modelVersion: this.metaAdapter.model,
+      modelVersion: `${this.metaAdapter.mode}:${this.metaAdapter.model}`,
+      baselineRevision: this.capabilityRegistry.baselineRevision,
       clientId: ctx.clientIdentity,
+      serverId: ctx.serverId,
+      sessionId: ctx.sessionId,
       toolName,
     });
     const cached = this.cache.get(cacheKey);
@@ -801,7 +820,12 @@ export class SecurityInspectionEngine {
       modelId: this.metaAdapter.model,
       evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
       tokenUsage: modelResult.tokenUsage,
-      origin: modelResult.mode === 'mock' ? 'mock' : 'live',
+      origin:
+        modelResult.mode === 'mock'
+          ? 'mock'
+          : modelResult.mode === 'disabled'
+            ? 'deterministic'
+            : 'live',
       confidence: modelResult.confidence,
       isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
     };
@@ -1193,8 +1217,11 @@ export class SecurityInspectionEngine {
         payload: textContent,
         stage: 'resource_content',
         policyVersion: this.policyVersion,
-        modelVersion: this.metaAdapter.model,
+        modelVersion: `${this.metaAdapter.mode}:${this.metaAdapter.model}`,
+        baselineRevision: this.capabilityRegistry.baselineRevision,
         clientId: ctx.clientIdentity,
+        serverId: ctx.serverId,
+        sessionId: ctx.sessionId,
         toolName: uri,
       });
       const cached = this.cache.get(cacheKey);
@@ -1249,7 +1276,12 @@ export class SecurityInspectionEngine {
         modelId: this.metaAdapter.model,
         evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
         tokenUsage: modelResult.tokenUsage,
-        origin: modelResult.mode === 'mock' ? 'mock' : 'live',
+        origin:
+          modelResult.mode === 'mock'
+            ? 'mock'
+            : modelResult.mode === 'disabled'
+              ? 'deterministic'
+              : 'live',
         confidence: modelResult.confidence,
         isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
       };
@@ -1535,8 +1567,11 @@ export class SecurityInspectionEngine {
         payload: contentText,
         stage: 'prompt_messages',
         policyVersion: this.policyVersion,
-        modelVersion: this.metaAdapter.model,
+        modelVersion: `${this.metaAdapter.mode}:${this.metaAdapter.model}`,
+        baselineRevision: this.capabilityRegistry.baselineRevision,
         clientId: ctx.clientIdentity,
+        serverId: ctx.serverId,
+        sessionId: ctx.sessionId,
         toolName: promptName,
       });
       const cached = this.cache.get(cacheKey);
@@ -1594,7 +1629,12 @@ export class SecurityInspectionEngine {
         modelId: this.metaAdapter.model,
         evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
         tokenUsage: modelResult.tokenUsage,
-        origin: modelResult.mode === 'mock' ? 'mock' : 'live',
+        origin:
+          modelResult.mode === 'mock'
+            ? 'mock'
+            : modelResult.mode === 'disabled'
+              ? 'deterministic'
+              : 'live',
         confidence: modelResult.confidence,
         isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
       };

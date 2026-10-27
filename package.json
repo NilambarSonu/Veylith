@@ -30,7 +30,13 @@
     "stdio": "tsx apps/stdio-adapter/src/index.ts",
     "demo:client": "tsx scripts/demo-real-client.ts",
     "dev": "echo 'See docs/development/local-setup.md for multi-process dev instructions'",
-    "clean": "pnpm -r run clean && rm -rf node_modules"
+    "clean": "pnpm -r run clean && rm -rf node_modules",
+    "security:eval": "pnpm build && tsx scripts/security-lab/index.ts development",
+    "security:eval:holdout": "pnpm build && tsx scripts/security-lab/index.ts holdout",
+    "security:eval:report": "tsx scripts/security-lab/index.ts report",
+    "security:eval:live": "tsx scripts/security-lab/live.ts",
+    "security:eval:reliability": "node --expose-gc --import tsx scripts/security-lab/reliability.ts",
+    "security:eval:typecheck": "tsc -p scripts/security-lab/tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

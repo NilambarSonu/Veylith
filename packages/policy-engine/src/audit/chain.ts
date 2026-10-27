@@ -87,6 +87,8 @@ export class AuditLogChain {
   private readonly storagePath?: string;
   private readonly fileMode: number;
   private fileFd?: number;
+  private persistedBytes = 0;
+  private persistenceFailed = false;
 
   constructor(options?: AuditLogChainOptions) {
     this.storagePath = options?.storagePath;
@@ -134,6 +136,7 @@ export class AuditLogChain {
     }
 
     this.fileFd = fs.openSync(this.storagePath, 'a', this.fileMode);
+    this.persistedBytes = fs.fstatSync(this.fileFd).size;
   }
 
   /**
@@ -170,11 +173,37 @@ export class AuditLogChain {
       currentEventHash,
     };
 
-    // Durable atomic append to disk
-    if (this.fileFd !== undefined) {
-      const line = `${canonicalJson(fullRecord)}\n`;
-      fs.writeSync(this.fileFd, line);
-      fs.fsyncSync(this.fileFd);
+    // A failed or closed persistent sink must never silently turn into memory-only audit.
+    if (this.storagePath && (this.fileFd === undefined || this.persistenceFailed)) {
+      throw new Error('Persistent audit unavailable; restart and verify the log before recovery');
+    }
+    if (this.fileFd !== undefined && this.storagePath) {
+      let lockFd: number | undefined;
+      const lockPath = `${this.storagePath}.append.lock`;
+      try {
+        // Cooperating processes serialize appends. A stale writer must reload the chain.
+        lockFd = fs.openSync(lockPath, 'wx', 0o600);
+        if (fs.fstatSync(this.fileFd).size !== this.persistedBytes) {
+          throw new Error('Audit log changed by another writer or was truncated; reload required');
+        }
+        const bytes = Buffer.from(`${canonicalJson(fullRecord)}\n`);
+        let offset = 0;
+        while (offset < bytes.length) {
+          const written = fs.writeSync(this.fileFd, bytes, offset, bytes.length - offset);
+          if (written <= 0) throw new Error('Incomplete audit write');
+          offset += written;
+        }
+        fs.fsyncSync(this.fileFd);
+        this.persistedBytes += bytes.length;
+      } catch (error) {
+        this.persistenceFailed = true;
+        throw error;
+      } finally {
+        if (lockFd !== undefined) {
+          fs.closeSync(lockFd);
+          fs.unlinkSync(lockPath);
+        }
+      }
     }
 
     this.records.push(fullRecord);
@@ -271,6 +300,8 @@ export class AuditLogChain {
    * Resets the chain (for testing).
    */
   reset(): void {
+    this.persistenceFailed = false;
+    this.persistedBytes = 0;
     this.records.length = 0;
     this.lastHash = GENESIS_HASH;
     if (this.fileFd !== undefined) {

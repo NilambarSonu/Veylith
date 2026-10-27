@@ -34,6 +34,7 @@ export interface SessionValidationResult {
 }
 
 export class ClientSessionManager {
+  private readonly sessionTtls = new Map<string, number>();
   private readonly sessions = new Map<string, ClientSession>();
   private readonly defaultTtlMs: number;
 
@@ -70,6 +71,7 @@ export class ClientSessionManager {
     };
 
     this.sessions.set(sessionId, session);
+    this.sessionTtls.set(sessionId, ttl);
     return session;
   }
 
@@ -94,6 +96,7 @@ export class ClientSessionManager {
     const now = Date.now();
     if (now > session.expiresAt) {
       this.sessions.delete(sessionId);
+      this.sessionTtls.delete(sessionId);
       return { valid: false, reason: 'expired' };
     }
 
@@ -109,7 +112,7 @@ export class ClientSessionManager {
     const updated: ClientSession = {
       ...session,
       lastAccessedAt: now,
-      expiresAt: now + this.defaultTtlMs,
+      expiresAt: now + (this.sessionTtls.get(sessionId) ?? this.defaultTtlMs),
     };
     this.sessions.set(sessionId, updated);
 
@@ -160,6 +163,7 @@ export class ClientSessionManager {
    * Destroys an existing session (explicit client logout or teardown).
    */
   destroySession(sessionId: string): boolean {
+    this.sessionTtls.delete(sessionId);
     return this.sessions.delete(sessionId);
   }
 
@@ -172,6 +176,7 @@ export class ClientSessionManager {
     for (const [id, session] of this.sessions.entries()) {
       if (now > session.expiresAt) {
         this.sessions.delete(id);
+        this.sessionTtls.delete(id);
         removed++;
       }
     }
@@ -191,5 +196,6 @@ export class ClientSessionManager {
    */
   reset(): void {
     this.sessions.clear();
+    this.sessionTtls.clear();
   }
 }

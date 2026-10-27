@@ -24,6 +24,7 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { Client } from '@modelcontextprotocol/client';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { loadConfig } from './config/index.js';
 import { Logger } from './observability/logger.js';
 import {
@@ -98,10 +99,10 @@ interface DiscoveredUpstreamState {
   readonly cachedAt: number;
 }
 
-let upstreamDiscoveryCache: DiscoveredUpstreamState | null = null;
+const upstreamDiscoveryCache = new Map<string, DiscoveredUpstreamState>();
 
 export function invalidateDiscoveryCache(): void {
-  upstreamDiscoveryCache = null;
+  upstreamDiscoveryCache.clear();
 }
 
 /**
@@ -130,15 +131,28 @@ export const handler = createMcpHandler(async ({ requestInfo }) => {
   const clientIdentity =
     headers?.get('x-veylith-client-id') ?? (sessionId ? undefined : 'local-anonymous');
 
+  // Only the HTTP adapter sets this marker, after removing any client-supplied value.
+  // Invocations always refresh discovery; a TTL is a performance hint, not authorization.
+  const cacheable = headers?.get('x-veylith-internal-cache') === 'list';
+  const cacheKey = JSON.stringify([
+    config.upstreamMcpUrl,
+    'v1.0.0',
+    metaAdapter.mode,
+    clientIdentity,
+    sessionId,
+    securityEngine.capabilityRegistry.baselineRevision,
+  ]);
+  const cached = upstreamDiscoveryCache.get(cacheKey);
   const now = Date.now();
   let discovered: DiscoveredUpstreamState;
 
   if (
-    upstreamDiscoveryCache &&
+    cacheable &&
+    cached &&
     config.discoveryCacheTtlMs > 0 &&
-    now - upstreamDiscoveryCache.cachedAt < config.discoveryCacheTtlMs
+    now - cached.cachedAt < config.discoveryCacheTtlMs
   ) {
-    discovered = upstreamDiscoveryCache;
+    discovered = cached;
   } else {
     let fetchedTools: readonly { name: string; description?: string; inputSchema?: unknown }[] = [];
     let fetchedResources: readonly ResourceContentItem[] = [];
@@ -187,7 +201,10 @@ export const handler = createMcpHandler(async ({ requestInfo }) => {
       prompts: fetchedPrompts,
       cachedAt: now,
     };
-    upstreamDiscoveryCache = discovered;
+    if (cacheable) {
+      if (upstreamDiscoveryCache.size >= 128) upstreamDiscoveryCache.clear();
+      upstreamDiscoveryCache.set(cacheKey, discovered);
+    }
   }
 
   // ----------------------------------------------------
@@ -298,6 +315,39 @@ export const handler = createMcpHandler(async ({ requestInfo }) => {
             }
 
             try {
+              // Revalidate on the same connection immediately before forwarding.
+              // MCP has no atomic definition-version + invocation primitive: server-side
+              // behavior changes after this check remain a documented residual race.
+              const current = (await forwardClient.listTools()).tools.find(
+                (t) => t.name === toolName,
+              );
+              if (!current)
+                return {
+                  content: [
+                    { type: 'text' as const, text: 'Veylith: tool disappeared before invocation' },
+                  ],
+                  isError: true,
+                };
+              const freshInspection = await securityEngine.inspectArguments(
+                ctx,
+                toolName,
+                (args as Record<string, unknown>) ?? {},
+                current,
+              );
+              if (
+                freshInspection.action === 'block' ||
+                (freshInspection.action === 'review' && config.failClosed)
+              ) {
+                return {
+                  content: [
+                    {
+                      type: 'text' as const,
+                      text: `Veylith policy blocked this call: ${freshInspection.explanation}`,
+                    },
+                  ],
+                  isError: true,
+                };
+              }
               const rawResult = await upstreamCircuitBreaker.execute(() =>
                 forwardClient.callTool({
                   name: toolName,
@@ -685,128 +735,136 @@ export const handler = createMcpHandler(async ({ requestInfo }) => {
 let activeInFlightRequests = 0;
 
 export const httpServer = createServer(async (req, res) => {
-  // Enforce request timeout
+  const url = new URL(req.url ?? '/', `http://${config.host}:${config.port}`);
+  if (url.pathname !== '/mcp') {
+    res
+      .writeHead(404, { 'Content-Type': 'application/json' })
+      .end(JSON.stringify({ error: 'Not found. Veylith gateway endpoint is at /mcp' }));
+    return;
+  }
+  if (activeInFlightRequests >= config.maxConcurrentRequests) {
+    res
+      .writeHead(429, { 'Content-Type': 'application/json' })
+      .end(JSON.stringify({ error: 'Too many concurrent requests' }));
+    req.resume();
+    return;
+  }
+  // Admission includes clients that are still uploading their request body.
+  activeInFlightRequests++;
+  const controller = new AbortController();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  const disconnected = () => {
+    controller.abort();
+    void reader?.cancel().catch(() => {});
+  };
+  req.on('aborted', disconnected);
+  res.on('close', disconnected);
   req.setTimeout(config.requestTimeoutMs, () => {
-    logger.warn('Gateway request timed out', { timeoutMs: config.requestTimeoutMs });
-    if (!res.headersSent) {
-      res.writeHead(504, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Gateway request timeout' }));
-    }
+    if (!res.headersSent) res.writeHead(408).end();
+    controller.abort();
     req.destroy();
   });
+  try {
+    const headers = new Headers();
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(', ') : value);
+    }
+    headers.delete('x-veylith-internal-cache');
+    if (!headers.has('x-veylith-session-id') && url.searchParams.has('sessionId'))
+      headers.set('x-veylith-session-id', url.searchParams.get('sessionId')!);
+    if (!headers.has('x-veylith-client-id') && url.searchParams.has('clientId'))
+      headers.set('x-veylith-client-id', url.searchParams.get('clientId')!);
+    const sessionId = headers.get('x-veylith-session-id') ?? undefined;
+    const clientIdentity = headers.get('x-veylith-client-id') ?? undefined;
+    const bodyChunks: Buffer[] = [];
+    let totalBytes = 0;
+    for await (const chunk of req) {
+      const buf = Buffer.from(chunk);
+      totalBytes += buf.length;
+      if (totalBytes > config.maxRequestBodyBytes) {
+        // Do not destroy the socket before the client receives its 413.
+        res.writeHead(413, { 'Content-Type': 'application/json', Connection: 'close' }).end(
+          JSON.stringify({
+            error: `Payload too large. Maximum request body is ${config.maxRequestBodyBytes} bytes`,
+          }),
+        );
+        req.resume();
+        return;
+      }
+      bodyChunks.push(buf);
+    }
+    const body = Buffer.concat(bodyChunks);
+    if (
+      config.enforceSessions &&
+      !sessionManager.validateSession(sessionId, clientIdentity, config.upstreamMcpUrl).valid
+    ) {
+      auditChain.append({
+        serverId: config.upstreamMcpUrl,
+        clientIdentity,
+        sessionId,
+        mcpMethod: 'http/admission',
+        stage: 'call_arguments',
+        decision: 'block',
+        reasonCode: 'unauthorized_access',
+        policyVersion: 'v1.0.0',
+        latencyMs: 0,
+      });
+      res.writeHead(403).end(JSON.stringify({ error: 'Valid local session required' }));
+      req.resume();
+      return;
+    }
 
-  const url = new URL(req.url ?? '/', `http://${config.host}:${config.port}`);
-
-  if (url.pathname !== '/mcp') {
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not found. Veylith gateway endpoint is at /mcp' }));
-    return;
-  }
-
-  // Concurrency limit check (backpressure)
-  if (activeInFlightRequests >= config.maxConcurrentRequests) {
-    logger.warn('Gateway concurrency limit reached', {
-      activeRequests: activeInFlightRequests,
-      limit: config.maxConcurrentRequests,
+    if (req.method === 'POST') {
+      let method: unknown;
+      try {
+        method = (JSON.parse(body.toString()) as { method?: unknown }).method;
+      } catch {
+        res.writeHead(400).end(JSON.stringify({ error: 'Malformed JSON' }));
+        return;
+      }
+      if (
+        typeof method === 'string' &&
+        ['tools/list', 'resources/list', 'resources/templates/list', 'prompts/list'].includes(
+          method,
+        )
+      )
+        headers.set('x-veylith-internal-cache', 'list');
+    }
+    const webRequest = new Request(url.toString(), {
+      method: req.method ?? 'POST',
+      headers,
+      body: ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : body,
+      signal: controller.signal,
     });
-    res.writeHead(429, { 'Content-Type': 'application/json' });
-    res.end(
-      JSON.stringify({
-        error: 'Too many concurrent requests. Veylith gateway concurrency limit reached.',
-      }),
-    );
-    return;
-  }
-
-  // Build web-standard Request
-  const headers = new Headers();
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (value !== undefined) {
-      if (Array.isArray(value)) {
-        for (const v of value) headers.append(key, v);
-      } else {
-        headers.set(key, value);
+    const webResponse = await handler.fetch(webRequest);
+    if (res.destroyed) {
+      await webResponse.body?.cancel();
+      return;
+    }
+    res.writeHead(webResponse.status, Object.fromEntries(webResponse.headers.entries()));
+    if (webResponse.body) {
+      reader = webResponse.body.getReader();
+      while (!res.destroyed) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!res.write(value)) await once(res, 'drain', { signal: controller.signal });
       }
     }
-  }
-
-  // Also support ?sessionId=... query parameter
-  if (!headers.has('x-veylith-session-id') && url.searchParams.has('sessionId')) {
-    headers.set('x-veylith-session-id', url.searchParams.get('sessionId')!);
-  }
-  if (!headers.has('x-veylith-client-id') && url.searchParams.has('clientId')) {
-    headers.set('x-veylith-client-id', url.searchParams.get('clientId')!);
-  }
-
-  // Read request body with bounded size check
-  const bodyChunks: Buffer[] = [];
-  let totalBytes = 0;
-  for await (const chunk of req) {
-    const buf = chunk as Buffer;
-    totalBytes += buf.length;
-    if (totalBytes > config.maxRequestBodyBytes) {
-      logger.warn('Request body exceeded maximum allowed bytes', {
-        totalBytes,
-        limit: config.maxRequestBodyBytes,
-      });
-      res.writeHead(413, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          error: `Payload too large. Maximum request body is ${config.maxRequestBodyBytes} bytes`,
-        }),
-      );
-      req.destroy();
-      return;
-    }
-    bodyChunks.push(buf);
-  }
-  const body = Buffer.concat(bodyChunks);
-
-  const webRequest = new Request(url.toString(), {
-    method: req.method ?? 'POST',
-    headers,
-    body: ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : body,
-  });
-
-  activeInFlightRequests++;
-  try {
-    const webResponse = await handler.fetch(webRequest);
-    res.writeHead(webResponse.status, Object.fromEntries(webResponse.headers.entries()));
-
-    if (webResponse.body) {
-      const reader = webResponse.body.getReader();
-      const pump = async (): Promise<void> => {
-        const { done, value } = await reader.read();
-        if (done) {
-          res.end();
-          return;
-        }
-        res.write(value);
-        return pump();
-      };
-      await pump();
-    } else {
-      res.end(await webResponse.text());
-    }
+    if (!res.destroyed) res.end();
   } catch (err) {
-    if (err instanceof CircuitBreakerOpenError) {
-      logger.warn('Circuit breaker open rejection', { error: err.message });
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          error: 'Upstream circuit breaker is OPEN. Upstream server is temporarily unavailable.',
-        }),
-      );
-      return;
-    }
-
-    logger.error('Gateway handler error', {
+    if (controller.signal.aborted || res.destroyed) return;
+    logger.error('Gateway request failure', {
       error: err instanceof Error ? err.message : String(err),
     });
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Internal gateway error' }));
+    if (!res.headersSent)
+      res
+        .writeHead(err instanceof CircuitBreakerOpenError ? 503 : 500)
+        .end(JSON.stringify({ error: 'Gateway request failed closed' }));
+    else res.destroy();
   } finally {
     activeInFlightRequests--;
+    req.off('aborted', disconnected);
+    res.off('close', disconnected);
   }
 });
 

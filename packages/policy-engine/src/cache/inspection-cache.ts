@@ -22,6 +22,8 @@ import type { SecurityInspectionResult } from '@veylith/core';
 
 export interface CacheKeyScope {
   readonly payload: string;
+  readonly sessionId?: string;
+  readonly baselineRevision?: number;
   readonly stage: string;
   readonly policyVersion: string;
   readonly modelVersion: string;
@@ -53,15 +55,17 @@ export class InspectionCache {
     const toolScope = scope.toolName?.trim() || '*';
     const payloadHash = createHash('sha256').update(scope.payload).digest('hex');
 
-    return [
+    return JSON.stringify([
       scope.stage,
       scope.policyVersion,
       scope.modelVersion,
       serverScope,
       clientScope,
+      scope.sessionId ?? '',
+      scope.baselineRevision ?? 0,
       toolScope,
       payloadHash,
-    ].join(':');
+    ]);
   }
 
   get(key: string): SecurityInspectionResult | null {

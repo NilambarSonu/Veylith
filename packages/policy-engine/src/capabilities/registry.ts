@@ -70,6 +70,7 @@ export function computeToolDefinitionHash(tool: {
 }
 
 export class ToolCapabilityRegistry {
+  public baselineRevision = 0;
   private readonly bindings = new Map<string, TrustedToolBinding>();
   private readonly toolDefinitions = new Map<string, ToolDefinitionSnapshot>();
 
@@ -93,6 +94,7 @@ export class ToolCapabilityRegistry {
     capability: ToolCapability,
     expectedSchemaHash?: string,
   ): void {
+    this.baselineRevision++;
     const key = `${serverId}:${toolName}`;
     this.bindings.set(key, {
       serverId,
@@ -141,6 +143,7 @@ export class ToolCapabilityRegistry {
     serverId: string,
     tool: ToolDefinitionInput | { name: string; schemaHash: string },
   ): void {
+    this.baselineRevision++;
     const key = `${serverId}:${tool.name}`;
     const hash = 'schemaHash' in tool ? tool.schemaHash : computeToolDefinitionHash(tool);
     const now = Date.now();
@@ -165,6 +168,7 @@ export class ToolCapabilityRegistry {
     tool: ToolDefinitionInput,
     _auditMetadata?: { readonly approvedBy?: string; readonly reason?: string },
   ): ToolDefinitionSnapshot {
+    this.baselineRevision++;
     const key = `${serverId}:${tool.name}`;
     const hash = computeToolDefinitionHash(tool);
     const existing = this.toolDefinitions.get(key);
@@ -313,6 +317,7 @@ export class ToolCapabilityRegistry {
    * Resets all recorded tool definitions and bindings.
    */
   reset(): void {
+    this.baselineRevision++;
     this.bindings.clear();
     this.toolDefinitions.clear();
   }
