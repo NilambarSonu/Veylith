@@ -3,9 +3,17 @@
  */
 
 export { PolicyEvaluator, type EvaluationContext } from './evaluator/index.js';
-export { DeterministicRuleSet, type RuleMatch } from './rules/deterministic.js';
+export { DeterministicRuleSet, type RuleMatch, type ScanOptions } from './rules/deterministic.js';
 export { HeuristicRiskScreener, type ScreenerVerdict } from './screener/heuristic.js';
 export { InspectionCache } from './cache/inspection-cache.js';
+export {
+  ToolCapabilityRegistry,
+  computeToolDefinitionHash,
+  type TrustedToolBinding,
+  type ToolDefinitionSnapshot,
+  type ToolDefinitionInput,
+  type DefinitionTrackingResult,
+} from './capabilities/registry.js';
 export {
   SecurityInspectionEngine,
   type SecurityEngineOptions,

@@ -25,12 +25,17 @@ import { Client } from '@modelcontextprotocol/client';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { Transport } from '@modelcontextprotocol/server';
-import { SecurityInspectionEngine } from '@veylith/policy-engine';
+import { SecurityInspectionEngine, type TrustedToolBinding } from '@veylith/policy-engine';
 import { MetaMuseSecurityAdapter } from '@veylith/meta-adapter';
 import type { PolicyRule, InspectionContext } from '@veylith/core';
 import * as z from 'zod/v4';
 import { StdioLogger, type LogLevel } from './logger.js';
-import { validateCommand, getSafeChildEnvironment, DEFAULT_MAX_BUFFER_SIZE } from './security.js';
+import {
+  validateCommand,
+  getSafeChildEnvironment,
+  DEFAULT_MAX_BUFFER_SIZE,
+  type ServerCredentialPolicy,
+} from './security.js';
 import type { Readable, Writable } from 'node:stream';
 
 export interface StdioAdapterConfig {
@@ -46,6 +51,12 @@ export interface StdioAdapterConfig {
   upstreamArgs?: string[];
   /** Custom environment variables for upstream command. */
   upstreamEnv?: Record<string, string>;
+  /** Unique server identifier for credential isolation and capability bindings. */
+  serverId?: string;
+  /** Explicit per-server credential allowlisting policies. */
+  credentialPolicy?: ServerCredentialPolicy | readonly ServerCredentialPolicy[];
+  /** Verified capability bindings for upstream tools. */
+  capabilityBindings?: readonly TrustedToolBinding[];
   /** Tools explicitly blocked by configuration. */
   blockedTools?: string[];
   /** Fail closed if security evaluation fails or returns review. Default: true */
@@ -118,6 +129,7 @@ export class VeylithStdioAdapter {
       this.securityEngine = new SecurityInspectionEngine(policyRules, metaAdapter, {
         failClosed: this.config.failClosed,
         policyVersion: 'v1.0.0',
+        capabilityBindings: this.config.capabilityBindings,
       });
     }
   }
@@ -214,7 +226,9 @@ export class VeylithStdioAdapter {
       let cleanTools: readonly { name: string; description?: string }[] = tools;
       if (this.mode === 'standalone' && this.securityEngine) {
         // Stage 1: Discovery Inspection (Tool-description poisoning & static block rules)
-        const discoveryOutcome = await this.securityEngine.inspectDiscovery(tools);
+        const serverId =
+          this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
+        const discoveryOutcome = await this.securityEngine.inspectDiscovery(tools, { serverId });
 
         for (const blocked of discoveryOutcome.blockedTools) {
           this.logger.warn(
@@ -279,11 +293,13 @@ export class VeylithStdioAdapter {
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
     const requestId = crypto.randomUUID();
     const start = performance.now();
+    const serverId = this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
     const ctx: InspectionContext = {
       requestId,
       stage: 'call_arguments',
       method: 'tools/call',
       toolName,
+      serverId,
       timestamp: new Date().toISOString(),
     };
 
@@ -456,7 +472,11 @@ export class VeylithStdioAdapter {
         throw new Error(`Command validation failed: ${validation.reason}`);
       }
 
-      const env = getSafeChildEnvironment(this.config.upstreamEnv);
+      const env = getSafeChildEnvironment({
+        serverId: this.config.serverId ?? this.config.upstreamCommand,
+        policy: this.config.credentialPolicy,
+        customEnv: this.config.upstreamEnv,
+      });
       const transport = new StdioClientTransport({
         command: this.config.upstreamCommand,
         args: this.config.upstreamArgs,

@@ -19,6 +19,15 @@ export type ThreatCategory =
   | 'destructive_command' // Shell execution, filesystem wipes, privilege escalation
   | 'none'; // Clean interaction
 
+/** Explicit capability classifications for upstream MCP tools. */
+export type ToolCapability =
+  | 'PURE_OR_READ' // Pure functions, text transforms, read-only queries (e.g. echo, add, search_codebase)
+  | 'SHELL_EXEC' // Operating system shell / terminal command execution (e.g. bash, exec_command)
+  | 'FS_MUTATION' // Destructive or mutating filesystem operations (e.g. delete_file, write_file)
+  | 'SQL_EXEC' // Database query and DDL/DML execution (e.g. execute_sql, query_db)
+  | 'NETWORK_OUT' // Arbitrary outbound network or HTTP transmission (e.g. curl, fetch_url, webhook)
+  | 'UNKNOWN'; // Unverified or untrusted tool capability (defaults to conservative enforcement)
+
 /** Enforcement action decided by the security engine. */
 export type PolicyAction = 'allow' | 'block' | 'review';
 
@@ -46,6 +55,10 @@ export interface InspectionContext {
   readonly toolName?: string;
   /** Client identity or IP, if available. */
   readonly clientIdentity?: string;
+  /** Upstream server identity or URL, if available. */
+  readonly serverId?: string;
+  /** Verified capability classification for the tool, if known. */
+  readonly capability?: ToolCapability;
   /** Timestamp when the event entered inspection (ISO-8601). */
   readonly timestamp: string;
 }

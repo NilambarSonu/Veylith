@@ -24,12 +24,15 @@ import type { MetaAdapter } from '@veylith/meta-adapter';
 import { DeterministicRuleSet } from '../rules/deterministic.js';
 import { HeuristicRiskScreener } from '../screener/heuristic.js';
 import { InspectionCache } from '../cache/inspection-cache.js';
+import { ToolCapabilityRegistry, type TrustedToolBinding } from '../capabilities/registry.js';
 
 export interface SecurityEngineOptions {
   readonly policyVersion?: string;
   readonly failClosed?: boolean;
   readonly useCache?: boolean;
   readonly defaultDecision?: PolicyAction;
+  readonly capabilityRegistry?: ToolCapabilityRegistry;
+  readonly capabilityBindings?: readonly TrustedToolBinding[];
 }
 
 export interface ToolMetadataInput {
@@ -63,6 +66,7 @@ export class SecurityInspectionEngine {
   private readonly policyVersion: string;
   private readonly failClosed: boolean;
   private readonly defaultDecision: PolicyAction;
+  public readonly capabilityRegistry: ToolCapabilityRegistry;
 
   constructor(
     policyRules: readonly PolicyRule[] = [],
@@ -75,16 +79,21 @@ export class SecurityInspectionEngine {
     this.failClosed = options?.failClosed ?? false;
     this.defaultDecision = options?.defaultDecision ?? 'allow';
     this.cache = new InspectionCache(500, 60000);
+    this.capabilityRegistry =
+      options?.capabilityRegistry ?? new ToolCapabilityRegistry(options?.capabilityBindings ?? []);
   }
 
   /**
    * 1. Inspect tool metadata during tools/list discovery.
-   * Identifies and filters out tool-description poisoning before downstream publication.
+   * Identifies tool-description poisoning, dynamic schema mutations, and static blocks.
    */
   async inspectDiscovery(
     tools: readonly ToolMetadataInput[],
-    _clientIdentity?: string,
+    clientOrContext?: string | { readonly serverId?: string; readonly clientIdentity?: string },
   ): Promise<DiscoveryInspectionOutcome> {
+    const serverId = typeof clientOrContext === 'object' ? clientOrContext.serverId : undefined;
+    const clientIdentity =
+      typeof clientOrContext === 'string' ? clientOrContext : clientOrContext?.clientIdentity;
     const cleanTools: ToolMetadataInput[] = [];
     const blockedTools: { name: string; reason: string; threatCategory: ThreatCategory }[] = [];
     const results: SecurityInspectionResult[] = [];
@@ -114,6 +123,35 @@ export class SecurityInspectionEngine {
         };
         results.push(res);
         blockedTools.push({ name: tool.name, reason: res.explanation, threatCategory: 'none' });
+        continue;
+      }
+
+      // Check for dynamic definition mutations (schema/description tampering after registration)
+      const trackResult = this.capabilityRegistry.trackDefinition(serverId, tool);
+      if (trackResult.mutated) {
+        const res: SecurityInspectionResult = {
+          id: randomUUID(),
+          stage: 'discovery',
+          action: 'block',
+          threatCategory: 'tool_poisoning',
+          evidence: [
+            {
+              type: 'definition_mutation',
+              snippet: `Hash changed from ${trackResult.previousHash?.slice(0, 12)} to ${trackResult.currentHash.slice(0, 12)}`,
+              location: 'tool_metadata',
+            },
+          ],
+          explanation: `Tool definition mutated: Description or schema for tool '${tool.name}' was modified after initial registration. Quarantined to prevent dynamic prompt injection or unauthorized capability expansion.`,
+          evaluationDurationMs: 0.1,
+          origin: 'deterministic',
+          isConfirmedViolation: true,
+        };
+        results.push(res);
+        blockedTools.push({
+          name: tool.name,
+          reason: res.explanation,
+          threatCategory: 'tool_poisoning',
+        });
         continue;
       }
 
@@ -173,7 +211,7 @@ export class SecurityInspectionEngine {
         stage: 'discovery',
         policyVersion: this.policyVersion,
         modelVersion: this.metaAdapter.model,
-        clientId: _clientIdentity,
+        clientId: clientIdentity,
         toolName: tool.name,
       });
       const cached = this.cache.get(cacheKey);
@@ -280,8 +318,17 @@ export class SecurityInspectionEngine {
       };
     }
 
-    // Tier 1 & 2: Screen arguments
-    const screenVerdict = this.screener.screen(args, 'call_arguments');
+    // Resolve tool capability from context or trusted registry
+    const capability =
+      ctx.capability ?? this.capabilityRegistry.resolveCapability(ctx.serverId, toolName);
+
+    // Tier 1 & 2: Screen arguments (capability-aware)
+    const screenVerdict = this.screener.screen(args, {
+      stage: 'call_arguments',
+      capability,
+      toolName,
+      serverId: ctx.serverId,
+    });
 
     if (screenVerdict.type === 'hard_violation') {
       return {

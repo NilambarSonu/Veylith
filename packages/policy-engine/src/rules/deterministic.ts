@@ -12,7 +12,7 @@
  *   - Known credential formats (API keys, private keys, tokens)
  */
 
-import type { ThreatCategory } from '@veylith/core';
+import type { ThreatCategory, ToolCapability } from '@veylith/core';
 
 export interface RuleMatch {
   readonly ruleId: string;
@@ -21,6 +21,13 @@ export interface RuleMatch {
   readonly description: string;
   readonly location: string;
   readonly snippet: string;
+}
+
+export interface ScanOptions {
+  readonly stage: 'discovery' | 'call_arguments' | 'call_response';
+  readonly capability?: ToolCapability;
+  readonly toolName?: string;
+  readonly serverId?: string;
 }
 
 export class DeterministicRuleSet {
@@ -191,21 +198,39 @@ export class DeterministicRuleSet {
   /**
    * Scan text or structured data for deterministic rule violations.
    * Recursively traverses objects and arrays.
+   *
+   * Accounts for tool capabilities:
+   * - PURE_OR_READ: exempt from destructive shell/SQL/FS execution rules
+   * - SHELL_EXEC: evaluates destructive shell commands and sensitive files
+   * - SQL_EXEC: evaluates destructive SQL statements
+   * - FS_MUTATION: evaluates destructive filesystem operations and path traversal
+   * - NETWORK_OUT: evaluates exfiltration endpoints
+   * - UNKNOWN: default-deny conservative enforcement (all destructive patterns checked)
    */
   scan(
     data: unknown,
-    stage: 'discovery' | 'call_arguments' | 'call_response',
+    stageOrOptions: 'discovery' | 'call_arguments' | 'call_response' | ScanOptions,
     pathPrefix = '',
   ): RuleMatch | null {
     if (data === null || data === undefined) return null;
 
+    const options: ScanOptions =
+      typeof stageOrOptions === 'string'
+        ? { stage: stageOrOptions, capability: 'UNKNOWN' }
+        : {
+            stage: stageOrOptions.stage,
+            capability: stageOrOptions.capability ?? 'UNKNOWN',
+            toolName: stageOrOptions.toolName,
+            serverId: stageOrOptions.serverId,
+          };
+
     if (typeof data === 'string') {
-      return this.checkString(data, stage, pathPrefix);
+      return this.checkString(data, options, pathPrefix);
     }
 
     if (Array.isArray(data)) {
       for (let i = 0; i < data.length; i++) {
-        const match = this.scan(data[i], stage, `${pathPrefix}[${i}]`);
+        const match = this.scan(data[i], options, `${pathPrefix}[${i}]`);
         if (match) return match;
       }
       return null;
@@ -214,7 +239,7 @@ export class DeterministicRuleSet {
     if (typeof data === 'object') {
       for (const [key, value] of Object.entries(data)) {
         const currentPath = pathPrefix ? `${pathPrefix}.${key}` : key;
-        const match = this.scan(value, stage, currentPath);
+        const match = this.scan(value, options, currentPath);
         if (match) return match;
       }
     }
@@ -222,11 +247,9 @@ export class DeterministicRuleSet {
     return null;
   }
 
-  private checkString(
-    str: string,
-    stage: 'discovery' | 'call_arguments' | 'call_response',
-    location: string,
-  ): RuleMatch | null {
+  private checkString(str: string, options: ScanOptions, location: string): RuleMatch | null {
+    const { stage, capability = 'UNKNOWN' } = options;
+
     // Stage: Discovery & Responses -> Check prompt injection directives
     for (const rule of this.promptInjectionDirectives) {
       const match = rule.pattern.exec(str);
@@ -242,59 +265,95 @@ export class DeterministicRuleSet {
       }
     }
 
-    // Stage: Call Arguments -> Check destructive commands and path traversal
+    // Stage: Call Arguments -> Capability-Aware Evaluation
     if (stage === 'call_arguments') {
-      for (const rule of this.destructiveShellPatterns) {
-        const match = rule.pattern.exec(str);
-        if (match) {
-          return {
-            ruleId: rule.id,
-            threatCategory: 'destructive_command',
-            matchedPattern: match[0],
-            description: rule.desc,
-            location,
-            snippet: this.makeSafeSnippet(str, match.index, match[0].length),
-          };
+      // 1. Destructive Shell Patterns (e.g. rm -rf /, fork bombs, mkfs)
+      const checkShell =
+        capability === 'SHELL_EXEC' || capability === 'FS_MUTATION' || capability === 'UNKNOWN';
+
+      if (checkShell) {
+        for (const rule of this.destructiveShellPatterns) {
+          const match = rule.pattern.exec(str);
+          if (match) {
+            return {
+              ruleId: rule.id,
+              threatCategory: 'destructive_command',
+              matchedPattern: match[0],
+              description: rule.desc,
+              location,
+              snippet: this.makeSafeSnippet(str, match.index, match[0].length),
+            };
+          }
         }
       }
 
-      for (const rule of this.destructiveSqlPatterns) {
-        const match = rule.pattern.exec(str);
-        if (match) {
-          return {
-            ruleId: rule.id,
-            threatCategory: 'destructive_command',
-            matchedPattern: match[0],
-            description: rule.desc,
-            location,
-            snippet: this.makeSafeSnippet(str, match.index, match[0].length),
-          };
+      // 2. Destructive SQL Patterns (DROP TABLE, TRUNCATE, unbounded DELETE)
+      const checkSql = capability === 'SQL_EXEC' || capability === 'UNKNOWN';
+      if (checkSql) {
+        for (const rule of this.destructiveSqlPatterns) {
+          const match = rule.pattern.exec(str);
+          if (match) {
+            return {
+              ruleId: rule.id,
+              threatCategory: 'destructive_command',
+              matchedPattern: match[0],
+              description: rule.desc,
+              location,
+              snippet: this.makeSafeSnippet(str, match.index, match[0].length),
+            };
+          }
         }
       }
 
-      for (const rule of this.sensitiveFilePatterns) {
-        const match = rule.pattern.exec(str);
-        if (match) {
-          return {
-            ruleId: rule.id,
-            threatCategory: 'suspicious_arguments',
-            matchedPattern: match[0],
-            description: rule.desc,
-            location,
-            snippet: this.makeSafeSnippet(str, match.index, match[0].length),
-          };
+      // 3. Path Traversal toward Sensitive Files (/etc/shadow, .ssh, .env)
+      const checkFiles =
+        capability === 'SHELL_EXEC' || capability === 'FS_MUTATION' || capability === 'UNKNOWN';
+
+      if (checkFiles) {
+        for (const rule of this.sensitiveFilePatterns) {
+          const match = rule.pattern.exec(str);
+          if (match) {
+            return {
+              ruleId: rule.id,
+              threatCategory: 'suspicious_arguments',
+              matchedPattern: match[0],
+              description: rule.desc,
+              location,
+              snippet: this.makeSafeSnippet(str, match.index, match[0].length),
+            };
+          }
+        }
+      }
+
+      // 4. Untrusted Exfiltration Destinations
+      const checkNetwork =
+        capability === 'NETWORK_OUT' || capability === 'SHELL_EXEC' || capability === 'UNKNOWN';
+
+      if (checkNetwork) {
+        for (const rule of this.untrustedDestinations) {
+          const match = rule.pattern.exec(str);
+          if (match) {
+            return {
+              ruleId: rule.id,
+              threatCategory: 'suspicious_arguments',
+              matchedPattern: match[0],
+              description: rule.desc,
+              location,
+              snippet: this.makeSafeSnippet(str, match.index, match[0].length),
+            };
+          }
         }
       }
     }
 
-    // Stages: Discovery & Call Arguments -> Check untrusted destinations
-    if (stage === 'discovery' || stage === 'call_arguments') {
+    // Stages: Discovery -> Check untrusted destinations
+    if (stage === 'discovery') {
       for (const rule of this.untrustedDestinations) {
         const match = rule.pattern.exec(str);
         if (match) {
           return {
             ruleId: rule.id,
-            threatCategory: stage === 'discovery' ? 'tool_poisoning' : 'suspicious_arguments',
+            threatCategory: 'tool_poisoning',
             matchedPattern: match[0],
             description: rule.desc,
             location,
@@ -304,7 +363,7 @@ export class DeterministicRuleSet {
       }
     }
 
-    // All stages -> Check for credential leakage
+    // All stages & All capabilities -> ALWAYS check for credential leakage
     for (const rule of this.credentialLeakPatterns) {
       const match = rule.pattern.exec(str);
       if (match) {

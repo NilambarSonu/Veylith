@@ -201,15 +201,14 @@ The stdio transport model introduces critical security and operating system proc
      - Rejects null bytes (`\0`) in any command arguments to prevent POSIX path truncation exploits.
    - Enforces a strict read buffer limit (default: 10 MB via `DEFAULT_MAX_BUFFER_SIZE`) to prevent memory exhaustion and denial-of-service from runaway child output.
 
-3. **Environment-Variable Forwarding & Secret Scrubbing (`getSafeChildEnvironment`):**
-   - Veylith does **not** forward the host application's raw `process.env` to upstream child processes.
+3. **Environment-Variable Forwarding, Allowlisting & Secret Isolation (`getSafeChildEnvironment`):**
+   - Veylith enforces a strict **default-deny** credential inheritance model.
+   - The host application's raw `process.env` is never blindly passed to upstream child processes.
    - Forwarding starts from the official MCP SDK safe baseline (`getDefaultEnvironment()`, which includes only standard OS variables like `PATH`, `HOME`, `USER`, `SHELL`, `LANG`).
-   - If user-defined environment variables are provided, Veylith scrubs and deletes all known sensitive API keys and tokens before passing the environment to the child:
-     - `META_MODEL_API_KEY`, `META_API_KEY`
-     - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
-     - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
-     - `GITHUB_TOKEN`, `GH_TOKEN`, `NPM_TOKEN`
-   - Child processes are prevented from reading the host's credentials or Veylith's LLM API keys.
+   - **Per-Server Credential Allowlisting:** Developers may authorize specific environment variable names for a specific trusted server via `ServerCredentialPolicy`.
+   - **Strict Isolation:** Credentials authorized for Server A (e.g. `GITHUB_TOKEN`) are NEVER forwarded to Server B.
+   - **Protected Variable Immutability:** Any attempt by child processes or configurations to override gateway internal variables (`GATEWAY_PORT`, `META_MODEL_API_KEY`, `FAIL_CLOSED`) is rejected with a fatal configuration error.
+   - **Sanitized Errors:** If a required credential is missing, a sanitized error identifies the missing variable name without ever leaking secret values or exposing them to logs or LLMs.
 
 4. **Behavior on Disconnect & Teardown Lifecycle:**
    - **Client Disconnect (stdin EOF):** When Claude Desktop, Cursor, or a client terminates, the operating system closes the stdin pipe. The adapter detects `process.stdin.on('end')` and initiates a graceful teardown:
@@ -219,6 +218,13 @@ The stdio transport model introduces critical security and operating system proc
      - Exits the process cleanly with code `0`.
    - **Signal Handling:** Listens for `SIGINT` and `SIGTERM` to ensure upstream subprocesses are never orphaned.
    - **Subprocess Exit:** If the upstream child process crashes or terminates unexpectedly, Veylith catches the error, logs a sanitized message to stderr, and returns `isError: true` on subsequent tool calls rather than crashing the client session.
+
+5. **Honest Subprocess Security: Application Mediation vs. True OS Sandboxing:**
+   Veylith clearly delineates what application-level mediation provides versus true operating system isolation:
+   - **Command Validation:** Verifies executable names, rejects shell metacharacters, and disallows inline shell execution flags (`-c`, `/c`, `-e`).
+   - **Environment Filtering:** Default-deny stripping of API keys and per-server allowlisting.
+   - **Process Lifecycle Management:** Graceful termination, buffer capping, and orphan prevention on stdin EOF.
+   - **OS Sandboxing Boundary:** Veylith does **not** claim that `shell: false` or command filtering provides kernel-level sandboxing. Once a valid binary is spawned, it executes under the host user's local operating system identity with the user's filesystem and network privileges. True host isolation requires OS-level containerization (e.g. Docker, Linux namespaces/seccomp, or microVMs). Veylith provides protocol-level mediation and argument inspection, not kernel virtualization.
 
 ---
 

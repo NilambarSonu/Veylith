@@ -78,7 +78,9 @@ const handler = createMcpHandler(async () => {
     const { tools } = await upstreamClient.listTools();
 
     // Stage 1: Discovery Inspection (Tool-description poisoning & static block rules)
-    const discoveryOutcome = await securityEngine.inspectDiscovery(tools);
+    const discoveryOutcome = await securityEngine.inspectDiscovery(tools, {
+      serverId: config.upstreamMcpUrl,
+    });
 
     for (const blocked of discoveryOutcome.blockedTools) {
       logger.warn('Tool blocked from discovery (tool-description poisoning or static rule)', {
@@ -107,6 +109,7 @@ const handler = createMcpHandler(async () => {
             stage: 'call_arguments',
             method: 'tools/call',
             toolName,
+            serverId: config.upstreamMcpUrl,
             timestamp: new Date().toISOString(),
           };
 

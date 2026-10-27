@@ -7,7 +7,7 @@
  * - 'ambiguous': contains semantic risk markers -> routes to Tier 3 Meta Muse inspection.
  */
 
-import type { RuleMatch } from '../rules/deterministic.js';
+import type { RuleMatch, ScanOptions } from '../rules/deterministic.js';
 import { DeterministicRuleSet } from '../rules/deterministic.js';
 
 export type ScreenerVerdict =
@@ -27,6 +27,7 @@ export class HeuristicRiskScreener {
     pattern: RegExp;
     signal: string;
     highRisk: boolean;
+    isExecKeyword?: boolean;
   }[] = [
     {
       pattern: /\b(?:override|bypass|disregard|ignore)\b/i,
@@ -47,6 +48,7 @@ export class HeuristicRiskScreener {
       pattern: /\b(?:exec|eval|system|subprocess|spawn|shell)\b/i,
       signal: 'Code execution terminology',
       highRisk: true,
+      isExecKeyword: true,
     },
     {
       pattern: /\b(?:admin|root|superuser|sudo|elevated)\b/i,
@@ -68,15 +70,23 @@ export class HeuristicRiskScreener {
   /**
    * Screen target data.
    */
-  screen(data: unknown, stage: 'discovery' | 'call_arguments' | 'call_response'): ScreenerVerdict {
-    // 1. Check deterministic hard violation first
-    const hardMatch = this.deterministicRules.scan(data, stage);
+  screen(
+    data: unknown,
+    stageOrOptions: 'discovery' | 'call_arguments' | 'call_response' | ScanOptions,
+  ): ScreenerVerdict {
+    const options: ScanOptions =
+      typeof stageOrOptions === 'string'
+        ? { stage: stageOrOptions, capability: 'UNKNOWN' }
+        : stageOrOptions;
+
+    // 1. Check deterministic hard violation first (capability-aware)
+    const hardMatch = this.deterministicRules.scan(data, options);
     if (hardMatch) {
       return { type: 'hard_violation', match: hardMatch };
     }
 
     // 2. Scan for semantic risk signals
-    const { signals, hasHighRisk } = this.findSemanticSignals(data);
+    const { signals, hasHighRisk } = this.findSemanticSignals(data, options);
     if (signals.length > 0) {
       const riskLevel = hasHighRisk || signals.length >= 2 ? 'high' : 'medium';
       return { type: 'ambiguous', suspiciousSignals: signals, riskLevel };
@@ -86,14 +96,23 @@ export class HeuristicRiskScreener {
     return { type: 'clean' };
   }
 
-  private findSemanticSignals(data: unknown): { signals: string[]; hasHighRisk: boolean } {
+  private findSemanticSignals(
+    data: unknown,
+    options?: ScanOptions,
+  ): { signals: string[]; hasHighRisk: boolean } {
     const signals: string[] = [];
     let hasHighRisk = false;
+    const isPureOrRead = options?.capability === 'PURE_OR_READ';
 
     const walk = (item: unknown) => {
       if (item === null || item === undefined) return;
       if (typeof item === 'string') {
         for (const k of this.semanticRiskKeywords) {
+          // If tool is verified PURE_OR_READ, execution keywords in arguments represent quoted content or search text
+          if (isPureOrRead && options?.stage === 'call_arguments' && k.isExecKeyword) {
+            continue;
+          }
+
           if (k.pattern.test(item)) {
             if (!signals.includes(k.signal)) signals.push(k.signal);
             if (k.highRisk) hasHighRisk = true;

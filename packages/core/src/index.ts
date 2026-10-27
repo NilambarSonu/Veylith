@@ -17,6 +17,7 @@ export { VeylithError, PolicyBlockedError, UpstreamError, ConfigError } from './
 export type {
   InspectionStage,
   ThreatCategory,
+  ToolCapability,
   PolicyAction,
   RiskEvidence,
   InspectionContext,
