@@ -113,19 +113,20 @@ To balance low latency with deep semantic analysis, Veylith uses a 3-tier proces
 
 - `DeterministicRuleSet`: In-memory pattern scanner covering destructive execution, exfiltration URLs, and directive overrides.
 - `HeuristicRiskScreener`: Fast regex/keyword screener triaging requests.
-- `InspectionCache`: Bounded in-memory LRU/TTL cache keyed by `SHA-256(payload) + stage + policyVersion + modelVersion`.
-- `SecurityInspectionEngine`: Master coordinator orchestrating all three tiers.
+- `InspectionCache`: Bounded in-memory LRU/TTL cache strictly scoped by `SHA-256(payload) + stage + policyVersion + modelVersion + serverId + clientId + toolName`. Transient review/outage verdicts are never cached, and expired entries are actively purged.
+- `SecurityInspectionEngine`: Master coordinator orchestrating all three tiers with high-risk quarantine safeguards.
 
 ### 4. `packages/meta-adapter` (Meta Muse Integration)
 
 - `MetaMuseSecurityAdapter`: Handles `mock` (offline deterministic simulation), `live` (Meta Model API `POST /responses` to `https://api.meta.ai/v1`), and `disabled` modes.
-- `UsageTracker`: Application-level budget cap enforcing maximum requests per run and daily USD budget caps with token accounting.
-- **Trust Separation**: Untrusted input is strictly encapsulated within `<untrusted_content>` tags, instructing the model to treat the content purely as passive data.
+- `UsageTracker`: Application-level budget cap enforcing maximum requests per run and daily USD budget caps with accurate token accounting (Standard Input: $1.25/1M, Cached Input: $0.15/1M, Output: $4.25/1M).
+- **Trust Separation**: Untrusted input is strictly encapsulated within dynamically generated cryptographic nonce boundary tags (`<untrusted_content_${boundaryNonce}>`), neutralizing XML delimiters and role-hijacking tokens to prevent classifier subversion.
 
 ---
 
 ## Trade-offs and Invariants
 
 1. **Deterministic Precedence**: AI inference is strictly consultative; it cannot unblock a payload flagged by a Tier 1 deterministic invariant.
-2. **Fail-Closed vs Fail-Open**: In development mode, ambiguous unblocked interactions default to `allow` (fail-open) for developer velocity. In production profiles, `failClosed: true` flags any model outage or `review` verdict as a block.
-3. **Local Privacy**: Model inspection is strictly performed from the backend gateway; API keys are never delivered to clients or browser runtimes.
+2. **Fail-Open Policy with High-Risk Quarantine**: In development mode (`FAIL_CLOSED=false`), benign interactions can fail open during provider outages, but **any operation exhibiting high-risk ambiguity signals is strictly quarantined (`block`)**. In production profiles, `failClosed: true` ensures that any model outage or `review` verdict results in immediate rejection.
+3. **Multi-Tenant Cache Isolation**: Security verdicts cannot cross tenant, client, or server boundaries due to composite SHA-256 keying.
+4. **Local Privacy**: Model inspection is strictly performed from the backend gateway; API keys are never delivered to clients or browser runtimes.

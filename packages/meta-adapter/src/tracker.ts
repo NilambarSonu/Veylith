@@ -2,14 +2,16 @@
  * Local usage, cost, and budget tracker for Meta Muse inference.
  *
  * Provides application-level safeguards against unexpected API spend.
- * Pricing defaults for muse-spark-1.3:
- *   Input: $0.15 per 1,000,000 tokens ($0.00000015 / token)
- *   Output: $0.60 per 1,000,000 tokens ($0.0000006 / token)
+ * Official Pricing for Meta Muse Spark 1.3 (Standard Mode):
+ *   Standard Input:     $1.25 per 1,000,000 tokens ($0.00000125 / token)
+ *   Cached Input:       $0.15 per 1,000,000 tokens ($0.00000015 / token)
+ *   Output:             $4.25 per 1,000,000 tokens ($0.00000425 / token)
  */
 
 export interface UsageReport {
   readonly requestCount: number;
   readonly promptTokens: number;
+  readonly cachedPromptTokens: number;
   readonly completionTokens: number;
   readonly totalTokens: number;
   readonly estimatedCostUsd: number;
@@ -22,13 +24,15 @@ export interface UsageReport {
 export class UsageTracker {
   private requestCount = 0;
   private promptTokens = 0;
+  private cachedPromptTokens = 0;
   private completionTokens = 0;
   private failureCount = 0;
   private totalLatencyMs = 0;
 
-  // Pricing constants (USD per token)
-  private readonly inputTokenPriceUsd = 0.00000015; // $0.15 / 1M
-  private readonly outputTokenPriceUsd = 0.0000006; // $0.60 / 1M
+  // Official Pricing constants (USD per token)
+  private readonly standardInputPriceUsd = 0.00000125; // $1.25 / 1M
+  private readonly cachedInputPriceUsd = 0.00000015; // $0.15 / 1M
+  private readonly outputTokenPriceUsd = 0.00000425; // $4.25 / 1M
 
   constructor(
     private readonly maxRequestsPerRun: number = 10,
@@ -55,9 +59,15 @@ export class UsageTracker {
   }
 
   /** Record a completed inference request with tokens and latency. */
-  recordSuccess(promptTokens: number, completionTokens: number, latencyMs: number): void {
+  recordSuccess(
+    promptTokens: number,
+    completionTokens: number,
+    latencyMs: number,
+    cachedPromptTokens = 0,
+  ): void {
     this.requestCount += 1;
     this.promptTokens += promptTokens;
+    this.cachedPromptTokens += Math.min(cachedPromptTokens, promptTokens);
     this.completionTokens += completionTokens;
     this.totalLatencyMs += latencyMs;
   }
@@ -68,10 +78,13 @@ export class UsageTracker {
     this.failureCount += 1;
   }
 
-  /** Calculate current estimated cost in USD. */
+  /** Calculate current estimated cost in USD based on standard vs cached input and output rates. */
   getEstimatedCostUsd(): number {
+    const uncachedPromptTokens = Math.max(0, this.promptTokens - this.cachedPromptTokens);
     return (
-      this.promptTokens * this.inputTokenPriceUsd + this.completionTokens * this.outputTokenPriceUsd
+      uncachedPromptTokens * this.standardInputPriceUsd +
+      this.cachedPromptTokens * this.cachedInputPriceUsd +
+      this.completionTokens * this.outputTokenPriceUsd
     );
   }
 
@@ -86,6 +99,7 @@ export class UsageTracker {
     return {
       requestCount: this.requestCount,
       promptTokens: this.promptTokens,
+      cachedPromptTokens: this.cachedPromptTokens,
       completionTokens: this.completionTokens,
       totalTokens,
       estimatedCostUsd: Math.round(this.getEstimatedCostUsd() * 100000) / 100000,
@@ -100,6 +114,7 @@ export class UsageTracker {
   reset(): void {
     this.requestCount = 0;
     this.promptTokens = 0;
+    this.cachedPromptTokens = 0;
     this.completionTokens = 0;
     this.failureCount = 0;
     this.totalLatencyMs = 0;

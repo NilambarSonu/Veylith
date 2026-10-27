@@ -113,11 +113,12 @@ describe('Direct server tests (baseline)', () => {
     await client.connect(transport);
 
     const { tools } = await client.listTools();
-    expect(tools.length).toBeGreaterThanOrEqual(2);
+    expect(tools.length).toBeGreaterThanOrEqual(3);
     const names = tools.map((t) => t.name);
     expect(names).toContain('echo');
     expect(names).toContain('add');
     expect(names).toContain('restricted_demo_tool');
+    expect(names).toContain('poisoned_discovery_tool');
     await client.close();
   });
 
@@ -155,8 +156,8 @@ describe('Direct server tests (baseline)', () => {
   });
 });
 
-describe('Gateway forwarding and policy enforcement', () => {
-  it('lists proxied tools through gateway', async () => {
+describe('Gateway forwarding and policy enforcement across all inspection stages', () => {
+  it('enforces Stage 1 discovery inspection (tools/list) by filtering poisoned tools at gateway boundary', async () => {
     const client = new Client({ name: 'test-gw', version: '0.1.0' });
     const transport = new StreamableHTTPClientTransport(new URL(GATEWAY_URL));
     await client.connect(transport);
@@ -164,8 +165,22 @@ describe('Gateway forwarding and policy enforcement', () => {
     const { tools } = await client.listTools();
     expect(tools.length).toBeGreaterThanOrEqual(2);
     const names = tools.map((t) => t.name);
+
+    // Benign tools are preserved and published
     expect(names).toContain('echo');
     expect(names).toContain('add');
+
+    // Poisoned tool was stripped during discovery inspection
+    expect(names).not.toContain('poisoned_discovery_tool');
+
+    // Calling the filtered tool fails cleanly with protocol error
+    await expect(
+      client.callTool({
+        name: 'poisoned_discovery_tool',
+        arguments: { query: 'test' },
+      }),
+    ).rejects.toThrow();
+
     await client.close();
   });
 

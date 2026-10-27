@@ -2,12 +2,33 @@
  * In-memory LRU / TTL Inspection Cache.
  *
  * Caches semantic inspection decisions to eliminate duplicate inference latency.
- * Keys are scoped to: SHA-256(payload) + stage + policyVersion + modelVersion.
- * Ensures that changes in policy or model invalidate previous cache entries.
+ * Keys are strictly scoped to:
+ *   - SHA-256(payload)
+ *   - stage (discovery | call_arguments | call_response)
+ *   - policyVersion (invalidated on policy update)
+ *   - modelVersion (invalidated on model change)
+ *   - serverId (prevents cross-server verdict confusion)
+ *   - clientId (prevents cross-client / cross-tenant privilege confusion)
+ *   - toolName (prevents cross-tool verdict reuse)
+ *
+ * Safety Invariants:
+ *   - Never caches transient fallback/outage verdicts.
+ *   - Evicts expired entries proactively.
+ *   - Strictly prevents cross-boundary verdict reuse.
  */
 
 import { createHash } from 'node:crypto';
 import type { SecurityInspectionResult } from '@veylith/core';
+
+export interface CacheKeyScope {
+  readonly payload: string;
+  readonly stage: string;
+  readonly policyVersion: string;
+  readonly modelVersion: string;
+  readonly serverId?: string;
+  readonly clientId?: string;
+  readonly toolName?: string;
+}
 
 export interface CacheEntry {
   readonly result: SecurityInspectionResult;
@@ -22,10 +43,25 @@ export class InspectionCache {
     private readonly ttlMs = 60000, // 1 minute default TTL
   ) {}
 
-  /** Generate deterministic cache key. */
-  generateKey(payload: string, stage: string, policyVersion: string, modelVersion: string): string {
-    const hash = createHash('sha256').update(payload).digest('hex');
-    return `${stage}:${policyVersion}:${modelVersion}:${hash}`;
+  /**
+   * Generate deterministic, cryptographically bound cache key.
+   * Incorporates all security boundaries: policy, model, server, client, stage, and tool.
+   */
+  generateKey(scope: CacheKeyScope): string {
+    const serverScope = scope.serverId?.trim() || 'default_upstream';
+    const clientScope = scope.clientId?.trim() || 'anonymous';
+    const toolScope = scope.toolName?.trim() || '*';
+    const payloadHash = createHash('sha256').update(scope.payload).digest('hex');
+
+    return [
+      scope.stage,
+      scope.policyVersion,
+      scope.modelVersion,
+      serverScope,
+      clientScope,
+      toolScope,
+      payloadHash,
+    ].join(':');
   }
 
   get(key: string): SecurityInspectionResult | null {
@@ -49,8 +85,18 @@ export class InspectionCache {
   }
 
   set(key: string, result: SecurityInspectionResult): void {
+    // SECURITY INVARIANT: Never cache transient fallback verdicts or unverified review states
+    if (result.action === 'review' || result.explanation.toLowerCase().includes('outage')) {
+      return;
+    }
+
+    // Proactively purge expired entries before capacity eviction
     if (this.cache.size >= this.maxEntries) {
-      // Evict oldest entry (first key in iteration order)
+      this.purgeExpired();
+    }
+
+    // If still at capacity, evict oldest entry (LRU)
+    if (this.cache.size >= this.maxEntries) {
       const oldestKey = this.cache.keys().next().value;
       if (oldestKey) this.cache.delete(oldestKey);
     }
@@ -59,6 +105,19 @@ export class InspectionCache {
       result,
       expiresAt: Date.now() + this.ttlMs,
     });
+  }
+
+  /** Actively evicts any expired entries. Returns count of evicted entries. */
+  purgeExpired(): number {
+    const now = Date.now();
+    let evicted = 0;
+    for (const [k, v] of this.cache.entries()) {
+      if (now > v.expiresAt) {
+        this.cache.delete(k);
+        evicted++;
+      }
+    }
+    return evicted;
   }
 
   clear(): void {

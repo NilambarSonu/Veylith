@@ -16,18 +16,24 @@ describe('UsageTracker', () => {
     expect(report.failureCount).toBe(0);
   });
 
-  it('records successful requests and calculates costs correctly', () => {
-    tracker.recordSuccess(1000, 500, 120);
+  it('records successful requests and calculates costs correctly with standard and cached rates', () => {
+    // 1000 total prompt tokens, 400 cached, 500 completion tokens
+    tracker.recordSuccess(1000, 500, 120, 400);
 
     const report = tracker.getReport();
     expect(report.requestCount).toBe(1);
     expect(report.promptTokens).toBe(1000);
+    expect(report.cachedPromptTokens).toBe(400);
     expect(report.completionTokens).toBe(500);
     expect(report.totalTokens).toBe(1500);
     expect(report.averageLatencyMs).toBe(120);
 
-    // Cost: 1000 * 0.00000015 + 500 * 0.0000006 = 0.00015 + 0.00030 = 0.00045
-    expect(report.estimatedCostUsd).toBeCloseTo(0.00045, 5);
+    // Cost:
+    // (1000 - 400) uncached prompt tokens * $0.00000125 = 600 * 0.00000125 = $0.00075
+    // 400 cached prompt tokens * $0.00000015 = 400 * 0.00000015 = $0.00006
+    // 500 completion tokens * $0.00000425 = 500 * 0.00000425 = $0.002125
+    // Total = 0.00075 + 0.00006 + 0.002125 = 0.002935
+    expect(report.estimatedCostUsd).toBeCloseTo(0.00294, 4);
   });
 
   it('records failures without inflating token counts', () => {
@@ -49,9 +55,10 @@ describe('UsageTracker', () => {
     );
   });
 
-  it('enforces budget cap', () => {
+  it('enforces budget cap with official pricing', () => {
     // Inject enough tokens to exceed $0.10 cap
-    tracker.recordSuccess(1000000, 0, 10); // 1M tokens * $0.00000015 = $0.15 > $0.10
+    // 100,000 standard tokens * $0.00000125 ($1.25/1M) = $0.125 > $0.10
+    tracker.recordSuccess(100000, 0, 10);
     expect(() => tracker.assertWithinBudget()).toThrowError(/Daily budget cap reached/);
   });
 });

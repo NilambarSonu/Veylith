@@ -13,38 +13,56 @@ import { DeterministicRuleSet } from '../rules/deterministic.js';
 export type ScreenerVerdict =
   | { readonly type: 'hard_violation'; readonly match: RuleMatch }
   | { readonly type: 'clean' }
-  | { readonly type: 'ambiguous'; readonly suspiciousSignals: readonly string[] };
+  | {
+      readonly type: 'ambiguous';
+      readonly suspiciousSignals: readonly string[];
+      readonly riskLevel: 'high' | 'medium';
+    };
 
 export class HeuristicRiskScreener {
   private readonly deterministicRules = new DeterministicRuleSet();
 
   // Keywords that warrant deeper semantic model inspection if present in untrusted data
-  private readonly semanticRiskKeywords: readonly { pattern: RegExp; signal: string }[] = [
+  private readonly semanticRiskKeywords: readonly {
+    pattern: RegExp;
+    signal: string;
+    highRisk: boolean;
+  }[] = [
     {
       pattern: /\b(?:override|bypass|disregard|ignore)\b/i,
       signal: 'Instruction override terminology',
+      highRisk: true,
     },
     {
       pattern: /\b(?:exfiltrat|leak|steal|send\s+to|webhook)\b/i,
       signal: 'Data transmission / exfiltration terminology',
+      highRisk: true,
     },
     {
       pattern: /\b(?:secret|password|credential|token|api[_-]?key|private[_-]?key)\b/i,
       signal: 'High-value credential terminology',
+      highRisk: true,
     },
     {
       pattern: /\b(?:exec|eval|system|subprocess|spawn|shell)\b/i,
       signal: 'Code execution terminology',
+      highRisk: true,
     },
     {
       pattern: /\b(?:admin|root|superuser|sudo|elevated)\b/i,
       signal: 'Privilege escalation terminology',
+      highRisk: true,
     },
     {
       pattern: /\b(?:hidden|invisible|instruction|payload)\b/i,
       signal: 'Steganographic / payload terminology',
+      highRisk: false,
     },
-    { pattern: /base64\s*,\s*[A-Za-z0-9+/=]{40,}/i, signal: 'Embedded Base64 payload' },
+    {
+      pattern: /base64\s*,\s*[A-Za-z0-9+/=]{40,}/i,
+      signal: 'Embedded Base64 payload',
+      highRisk: true,
+    },
   ];
 
   /**
@@ -58,17 +76,19 @@ export class HeuristicRiskScreener {
     }
 
     // 2. Scan for semantic risk signals
-    const signals = this.findSemanticSignals(data);
+    const { signals, hasHighRisk } = this.findSemanticSignals(data);
     if (signals.length > 0) {
-      return { type: 'ambiguous', suspiciousSignals: signals };
+      const riskLevel = hasHighRisk || signals.length >= 2 ? 'high' : 'medium';
+      return { type: 'ambiguous', suspiciousSignals: signals, riskLevel };
     }
 
     // 3. Otherwise clean
     return { type: 'clean' };
   }
 
-  private findSemanticSignals(data: unknown): string[] {
+  private findSemanticSignals(data: unknown): { signals: string[]; hasHighRisk: boolean } {
     const signals: string[] = [];
+    let hasHighRisk = false;
 
     const walk = (item: unknown) => {
       if (item === null || item === undefined) return;
@@ -76,6 +96,7 @@ export class HeuristicRiskScreener {
         for (const k of this.semanticRiskKeywords) {
           if (k.pattern.test(item)) {
             if (!signals.includes(k.signal)) signals.push(k.signal);
+            if (k.highRisk) hasHighRisk = true;
           }
         }
       } else if (Array.isArray(item)) {
@@ -86,6 +107,6 @@ export class HeuristicRiskScreener {
     };
 
     walk(data);
-    return signals;
+    return { signals, hasHighRisk };
   }
 }

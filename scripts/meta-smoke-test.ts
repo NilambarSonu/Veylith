@@ -66,12 +66,13 @@ async function runLiveSmokeTest() {
 
     const report = adapter.tracker.getReport();
     console.log('------------------------------------------------------');
-    console.log('USAGE & COST REPORT:');
-    console.log(`Requests Executed: ${report.requestCount}`);
-    console.log(`Prompt Tokens    : ${report.promptTokens}`);
-    console.log(`Completion Tokens: ${report.completionTokens}`);
-    console.log(`Total Tokens     : ${report.totalTokens}`);
-    console.log(`Estimated Spend  : $${report.estimatedCostUsd.toFixed(6)} USD`);
+    console.log('USAGE & COST REPORT (Standard: $1.25/1M, Cached: $0.15/1M, Output: $4.25/1M):');
+    console.log(`Requests Executed    : ${report.requestCount}`);
+    console.log(`Prompt Tokens (Total): ${report.promptTokens}`);
+    console.log(`Cached Prompt Tokens : ${report.cachedPromptTokens}`);
+    console.log(`Completion Tokens    : ${report.completionTokens}`);
+    console.log(`Total Tokens         : ${report.totalTokens}`);
+    console.log(`Estimated Spend      : $${report.estimatedCostUsd.toFixed(6)} USD`);
     console.log('======================================================\n');
   } catch (err) {
     console.error('Smoke test failed:', err instanceof Error ? err.message : String(err));

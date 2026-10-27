@@ -103,23 +103,30 @@ For in-depth architectural details, see:
 
 ---
 
-## 5. Security Benchmark Results
+## 5. Security Benchmark Results (Synthetic Evaluation)
 
-Evaluated against the documented 32-item benchmark corpus ([tests/fixtures/security-corpus.json](tests/fixtures/security-corpus.json)):
+> **Important Evaluation Context**: The metrics below reflect automated evaluation against the curated 32-item synthetic benchmark corpus ([tests/fixtures/security-corpus.json](tests/fixtures/security-corpus.json)). They represent deterministic rule coverage and high-fidelity mock adapter regression testing, **not** live-model inference or in-the-wild zero-day threat testing.
 
 | Metric                   |        Result         | Benchmark Details                                         |
 | :----------------------- | :-------------------: | :-------------------------------------------------------- |
-| **Total Test Items**     |        **32**         | 16 benign interactions, 16 adversarial/malicious payloads |
-| **True Positives (TP)**  |        **16**         | All 16 malicious payloads blocked                         |
-| **True Negatives (TN)**  |        **16**         | All 16 benign payloads allowed                            |
-| **False Positives (FP)** |         **0**         | Zero false alarms on legitimate code or math              |
-| **False Negatives (FN)** |         **0**         | Zero missed attacks                                       |
-| **Precision**            |      **100.0%**       | `TP / (TP + FP)`                                          |
-| **Recall**               |      **100.0%**       | `TP / (TP + FN)`                                          |
-| **F1 Score**             |      **100.0%**       | Optimal harmonic balance                                  |
-| **Mean Latency**         |      **0.24 ms**      | Sub-millisecond local evaluation                          |
-| **P50 / P95 Latency**    | **0.03 ms / 1.29 ms** | High-throughput throughput profile                        |
-| **Net Proxy Overhead**   |      **~6.3 ms**      | Measured local Node.js network roundtrip overhead         |
+| **Corpus Samples**       |        **32**         | 16 benign interactions, 16 adversarial/malicious payloads |
+| **True Positives (TP)**  |        **16**         | All 16 synthetic malicious payloads blocked               |
+| **True Negatives (TN)**  |        **16**         | All 16 synthetic benign payloads allowed                  |
+| **False Positives (FP)** |         **0**         | Zero false alarms on legitimate code or arithmetic        |
+| **False Negatives (FN)** |         **0**         | Zero missed attacks across synthetic test vectors         |
+| **Precision**            |      **100.0%**       | `TP / (TP + FP)` on synthetic corpus                      |
+| **Recall**               |      **100.0%**       | `TP / (TP + FN)` on synthetic corpus                      |
+| **F1 Score**             |      **100.0%**       | Optimal harmonic balance on synthetic corpus              |
+| **Mean Latency**         |      **0.25 ms**      | Sub-millisecond local evaluation                          |
+| **P50 / P95 Latency**    | **0.03 ms / 1.87 ms** | High-throughput local throughput profile                  |
+| **Net Proxy Overhead**   |      **~7.2 ms**      | Measured local Node.js network roundtrip overhead         |
+
+### Evaluation Tier Breakdown
+
+- **Tier 1 (Deterministic Rules)**: Caught 15 of 16 malicious corpus items with `<0.05 ms` latency.
+- **Tier 2 (Heuristic Screener)**: Screened and routed ambiguous content with risk level categorization.
+- **Tier 3 (Meta Muse Adapter)**: 1 item evaluated via mock semantic classifier.
+- **Live Meta Model Calls**: 0 during automated CI/CD runs (ensuring $0.00 API cost).
 
 ---
 
@@ -151,7 +158,7 @@ cp .env.example .env
 
 | Command                 | Description                                                   |
 | :---------------------- | :------------------------------------------------------------ |
-| `pnpm test:all`         | Run complete test suite (61 tests across 11 suites)           |
+| `pnpm test:all`         | Run complete test suite (63+ tests across 12 suites)          |
 | `pnpm test:integration` | Run multi-process integration tests and security benchmarks   |
 | `pnpm smoke:meta`       | Safely test live Meta Muse API connectivity (budget-capped)   |
 | `pnpm typecheck`        | Strict TypeScript type checking across all workspace packages |
@@ -171,9 +178,13 @@ Veylith integrates **Meta Muse** (`muse-spark-1.3`) for semantic threat classifi
   - `META_AI_MODE=mock`: High-fidelity deterministic simulated inference (used by all automated tests, zero cost).
   - `META_AI_MODE=live`: Real Meta Model API inference via `POST https://api.meta.ai/v1/responses`.
   - `META_AI_MODE=disabled`: Bypasses semantic model while preserving Tier 1 deterministic protections.
+- **Official Meta Muse Spark 1.3 Pricing (Standard Mode)**:
+  - **Standard Input Tokens**: $1.25 per 1,000,000 tokens ($0.00000125 / token)
+  - **Cached Input Tokens**: $0.15 per 1,000,000 tokens ($0.00000015 / token)
+  - **Output Tokens**: $4.25 per 1,000,000 tokens ($0.00000425 / token)
 - **Financial & Budget Controls**:
   - `UsageTracker` enforces strict local request caps (`maxRequestsPerRun`, default 10) and budget ceilings (`dailyBudgetUsd`, default $0.25).
-  - Token accounting: input ($0.15 / 1M) and output ($0.60 / 1M).
+  - Accurate token accounting separating standard input, cached input, and completion tokens.
   - Separate manual smoke test: `META_MODEL_API_KEY="key" META_AI_MODE="live" pnpm smoke:meta`.
 
 ---
@@ -182,9 +193,10 @@ Veylith integrates **Meta Muse** (`muse-spark-1.3`) for semantic threat classifi
 
 Security engineering demands transparency:
 
-- **No Universal Prompt Injection Immunity**: Veylith does **not** claim to prevent 100% of all possible semantic prompt injections. Sophisticated multi-step, multi-lingual, or obfuscated adversarial prompts remain an open challenge.
-- **Fail-Open Development Default**: The PoC defaults to fail-open (`allow`) for ambiguous unblocked tools. Production deployments can enable strict fail-closed enforcement via `FAIL_CLOSED=true`.
-- **Response Buffering**: In Phase 1, Streamable HTTP responses are buffered per exchange to allow complete inspection before delivery. Streaming SSE token multiplexing is planned for Phase 2.
+- **Synthetic Benchmark vs Real-World Threats**: The reported 100% detection metrics are achieved on a curated 32-sample synthetic test corpus designed for regression and unit validation. Real-world threat distribution, multilingual injection, token obfuscation, and zero-day jailbreaks can evade signature and heuristic filters.
+- **No Universal Prompt Injection Immunity**: Veylith does **not** claim complete or universal protection against prompt injection. AI guardrails are defense-in-depth layers, not mathematically provable firewalls.
+- **Fail-Open Policy & High-Risk Quarantine**: In default development mode (`FAIL_CLOSED=false`), clean operations proceed without blocking on provider outages. However, **high-risk unverified operations are strictly quarantined** even during provider downtime. Production deployments can enforce complete `FAIL_CLOSED=true`.
+- **Cache Isolation**: Inspection cache entries are cryptographically scoped by policy version, model version, server identity, client identity, and tool name to prevent cross-tenant or cross-boundary verdict reuse. Transient provider errors are never cached.
 
 ---
 

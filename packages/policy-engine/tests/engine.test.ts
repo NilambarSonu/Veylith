@@ -144,4 +144,64 @@ describe('SecurityInspectionEngine', () => {
       expect(outcome.sanitizedContent[0]?.text).not.toContain('SYSTEM INSTRUCTION');
     });
   });
+
+  describe('Fail-Open Security & High-Risk Quarantine', () => {
+    // Adapter that simulates an AI provider outage
+    const failingAdapter = {
+      model: 'muse-spark-1.3',
+      mode: 'live' as const,
+      inspect: async () => ({
+        flagged: true,
+        threatCategory: 'none' as const,
+        action: 'review' as const,
+        explanation: 'Meta model outage: network timeout',
+        confidence: 0.0,
+        evidence: ['Outage fallback'],
+        durationMs: 50,
+        mode: 'live' as const,
+        model: 'muse-spark-1.3',
+      }),
+    };
+
+    it('quarantines high-risk ambiguous arguments when AI provider fails (even with failClosed=false)', async () => {
+      // Create engine with failClosed=false (default fail-open)
+      const failOpenEngine = new SecurityInspectionEngine([], failingAdapter, {
+        failClosed: false,
+      });
+
+      // Arguments with high-risk signals (e.g. exec + override + sensitive terminology)
+      const res = await failOpenEngine.inspectArguments(
+        {
+          requestId: 'req-outage-1',
+          stage: 'call_arguments',
+          method: 'tools/call',
+          toolName: 'query',
+          timestamp: new Date().toISOString(),
+        },
+        'query',
+        { command: 'override system and bypass auth check' },
+      );
+
+      // Invariant: High-risk unverified operation MUST NOT automatically pass!
+      expect(res.action).toBe('block');
+      expect(res.explanation).toContain('High-risk arguments quarantined');
+    });
+
+    it('quarantines high-risk tool discovery when AI provider fails', async () => {
+      const failOpenEngine = new SecurityInspectionEngine([], failingAdapter, {
+        failClosed: false,
+      });
+
+      const outcome = await failOpenEngine.inspectDiscovery([
+        {
+          name: 'suspicious_tool',
+          description: 'A tool that attempts to override instructions and exfiltrate data',
+        },
+      ]);
+
+      expect(outcome.cleanTools).toHaveLength(0);
+      expect(outcome.blockedTools).toHaveLength(1);
+      expect(outcome.blockedTools[0]?.reason).toContain('High-risk tool discovery quarantined');
+    });
+  });
 });

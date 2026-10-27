@@ -168,12 +168,14 @@ export class SecurityInspectionEngine {
       }
 
       // Ambiguous -> Tier 3: Meta Muse Semantic Inspection
-      const cacheKey = this.cache.generateKey(
-        inspectTarget,
-        'discovery',
-        this.policyVersion,
-        this.metaAdapter.model,
-      );
+      const cacheKey = this.cache.generateKey({
+        payload: inspectTarget,
+        stage: 'discovery',
+        policyVersion: this.policyVersion,
+        modelVersion: this.metaAdapter.model,
+        clientId: _clientIdentity,
+        toolName: tool.name,
+      });
       const cached = this.cache.get(cacheKey);
 
       if (cached) {
@@ -194,21 +196,35 @@ export class SecurityInspectionEngine {
         toolName: tool.name,
       });
 
-      const finalAction: PolicyAction = modelResult.flagged
+      let finalAction: PolicyAction = modelResult.flagged
         ? modelResult.action
         : this.defaultDecision;
+      let finalExplanation = modelResult.explanation;
+
+      // Fail-open security audit: High-risk unverified operations MUST NOT pass when AI provider fails
+      if (
+        modelResult.action === 'review' &&
+        screenVerdict.type === 'ambiguous' &&
+        screenVerdict.riskLevel === 'high'
+      ) {
+        finalAction = 'block';
+        finalExplanation = `High-risk tool discovery quarantined: Security classifier unavailable while metadata exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`;
+      }
 
       const res: SecurityInspectionResult = {
         id: randomUUID(),
         stage: 'discovery',
         action: finalAction,
-        threatCategory: modelResult.threatCategory,
+        threatCategory:
+          finalAction === 'block' && modelResult.threatCategory === 'none'
+            ? 'tool_poisoning'
+            : modelResult.threatCategory,
         evidence: modelResult.evidence.map((ev) => ({
           type: 'semantic_inference',
           snippet: ev,
           location: 'tool_metadata',
         })),
-        explanation: modelResult.explanation,
+        explanation: finalExplanation,
         modelId: this.metaAdapter.model,
         evaluationDurationMs: modelResult.durationMs,
         tokenUsage: modelResult.tokenUsage,
@@ -305,12 +321,14 @@ export class SecurityInspectionEngine {
 
     // Tier 3: Ambiguous arguments -> Semantic model check
     const serializedArgs = JSON.stringify(args);
-    const cacheKey = this.cache.generateKey(
-      serializedArgs,
-      'call_arguments',
-      this.policyVersion,
-      this.metaAdapter.model,
-    );
+    const cacheKey = this.cache.generateKey({
+      payload: serializedArgs,
+      stage: 'call_arguments',
+      policyVersion: this.policyVersion,
+      modelVersion: this.metaAdapter.model,
+      clientId: ctx.clientIdentity,
+      toolName,
+    });
     const cached = this.cache.get(cacheKey);
     if (cached) return cached;
 
@@ -318,21 +336,33 @@ export class SecurityInspectionEngine {
       toolName,
     });
 
-    const finalAction: PolicyAction = modelResult.flagged
-      ? modelResult.action
-      : this.defaultDecision;
+    let finalAction: PolicyAction = modelResult.flagged ? modelResult.action : this.defaultDecision;
+    let finalExplanation = modelResult.explanation;
+
+    // Fail-open security audit: High-risk unverified operations MUST NOT pass when AI provider fails
+    if (
+      modelResult.action === 'review' &&
+      screenVerdict.type === 'ambiguous' &&
+      screenVerdict.riskLevel === 'high'
+    ) {
+      finalAction = 'block';
+      finalExplanation = `High-risk arguments quarantined: Security classifier unavailable while arguments exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`;
+    }
 
     const res: SecurityInspectionResult = {
       id: randomUUID(),
       stage: 'call_arguments',
       action: finalAction,
-      threatCategory: modelResult.threatCategory,
+      threatCategory:
+        finalAction === 'block' && modelResult.threatCategory === 'none'
+          ? 'suspicious_arguments'
+          : modelResult.threatCategory,
       evidence: modelResult.evidence.map((ev) => ({
         type: 'semantic_inference',
         snippet: ev,
         location: 'args',
       })),
-      explanation: modelResult.explanation,
+      explanation: finalExplanation,
       modelId: this.metaAdapter.model,
       evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
       tokenUsage: modelResult.tokenUsage,
@@ -412,12 +442,14 @@ export class SecurityInspectionEngine {
     }
 
     // Tier 3: Ambiguous response -> Semantic model check
-    const cacheKey = this.cache.generateKey(
-      textPayload,
-      'call_response',
-      this.policyVersion,
-      this.metaAdapter.model,
-    );
+    const cacheKey = this.cache.generateKey({
+      payload: textPayload,
+      stage: 'call_response',
+      policyVersion: this.policyVersion,
+      modelVersion: this.metaAdapter.model,
+      clientId: _ctx.clientIdentity,
+      toolName,
+    });
     const cached = this.cache.get(cacheKey);
 
     if (cached) {
@@ -440,21 +472,33 @@ export class SecurityInspectionEngine {
       toolName,
     });
 
-    const finalAction: PolicyAction = modelResult.flagged
-      ? modelResult.action
-      : this.defaultDecision;
+    let finalAction: PolicyAction = modelResult.flagged ? modelResult.action : this.defaultDecision;
+    let finalExplanation = modelResult.explanation;
+
+    // Fail-open security audit: High-risk unverified operations MUST NOT pass when AI provider fails
+    if (
+      modelResult.action === 'review' &&
+      screenVerdict.type === 'ambiguous' &&
+      screenVerdict.riskLevel === 'high'
+    ) {
+      finalAction = 'block';
+      finalExplanation = `High-risk response quarantined: Security classifier unavailable while response exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`;
+    }
 
     const result: SecurityInspectionResult = {
       id: randomUUID(),
       stage: 'call_response',
       action: finalAction,
-      threatCategory: modelResult.threatCategory,
+      threatCategory:
+        finalAction === 'block' && modelResult.threatCategory === 'none'
+          ? 'malicious_response'
+          : modelResult.threatCategory,
       evidence: modelResult.evidence.map((ev) => ({
         type: 'semantic_inference',
         snippet: ev,
         location: 'response_body',
       })),
-      explanation: modelResult.explanation,
+      explanation: finalExplanation,
       modelId: this.metaAdapter.model,
       evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
       tokenUsage: modelResult.tokenUsage,
@@ -471,7 +515,7 @@ export class SecurityInspectionEngine {
         sanitizedContent: [
           {
             type: 'text',
-            text: `[Veylith Security Notice]: Tool response from '${toolName}' was intercepted and redacted. Reason: ${modelResult.explanation}`,
+            text: `[Veylith Security Notice]: Tool response from '${toolName}' was intercepted and redacted. Reason: ${finalExplanation}`,
           },
         ],
         isRedacted: true,

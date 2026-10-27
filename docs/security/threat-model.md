@@ -111,13 +111,15 @@ mindmap
 
 1. **Deterministic Precedence**: The AI model can never overturn or relax a Tier 1 hard deterministic block.
 2. **Local Network Binding**: Gateway binds strictly to `127.0.0.1` by default.
-3. **Trust Separation Delimiters**: When calling Meta Muse, untrusted payloads are strictly isolated inside XML tags (`<untrusted_content>`) to prevent prompt injection into the classifier itself.
-4. **Outage Fallback**: If the Meta Model API is unreachable or times out, Veylith enters a safe fallback state (flagging ambiguous items for review or blocking if `failClosed: true`).
+3. **Cryptographic Nonce Trust Separation**: When calling Meta Muse, untrusted payloads are isolated inside dynamically generated cryptographic boundary tags (`<untrusted_content_${boundaryNonce}>`), and any embedded XML tags, CDATA blocks, or role-injection markers (`[SYSTEM]`, `System:`) are neutralized to prevent classifier hijacking.
+4. **Fail-Open Policy with High-Risk Quarantine**: If the Meta Model API is unreachable or times out, benign routine traffic can fail open, but **any operation exhibiting high-risk ambiguity signals is strictly quarantined (`block`)**. When `FAIL_CLOSED=true` is enabled, all unverified operations are rejected.
+5. **Multi-Tenant Cache Boundary Isolation**: Inspection cache keys are cryptographically bound to `(stage, policyVersion, modelVersion, serverId, clientId, toolName, payloadHash)` to ensure that security verdicts cannot cross tenant, client, or server boundaries. Transient outage errors are never cached.
 
 ---
 
 ## Honest Security Limitations (Phase 1)
 
+- **Synthetic Benchmark vs Real-World Invariants**: The 100% detection rate in benchmark suites is measured against a curated 32-sample synthetic corpus for regression testing, not a live adversarial red-team distribution.
 - **No Universal Prompt Injection Guarantee**: Veylith does _not_ claim to prevent 100% of all possible semantic prompt injections. Sophisticated multi-step, multi-lingual, or obfuscated adversarial prompts remain an open security challenge.
 - **LLM Confidence Scores**: Model confidence scores are treated as heuristic guidance, not calibrated mathematical probabilities.
-- **Fail-Open Default for PoC**: Unblocked, ambiguous tools default to `allow` in development mode unless configured with `FAIL_CLOSED=true`.
+- **Session Memory**: Phase 1 inspects single-turn exchanges independently. Detecting distributed, multi-turn prompt injection fragments across multiple tool calls requires stateful session tracking (targeted for Phase 2).

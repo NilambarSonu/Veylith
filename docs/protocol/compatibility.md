@@ -28,12 +28,13 @@ Veylith enforces security policies strictly within standard MCP protocol semanti
 - Scanned for **tool-description poisoning** (embedded directives, role spoofing, credential mandates).
 - Poisoned tools are dropped from the downstream tool registration.
 - Downstream clients receive a standard, valid `tools/list` response containing only verified clean tools.
+- If a client subsequently attempts to invoke a tool that was dropped during discovery, the gateway returns a standard MCP protocol error (`code: -32601`, Tool not found).
 
 ### 2. Argument Interception (`tools/call`)
 
 - When a client executes `tools/call`, the gateway inspects arguments before forwarding.
 - If blocked (e.g. `rm -rf /`, SQL `DROP TABLE`, or static rule match):
-  - Returns a standard MCP tool response:
+  - Returns a standard MCP tool response conforming to `CallToolResult`:
     ```json
     {
       "content": [
@@ -68,11 +69,26 @@ Veylith enforces security policies strictly within standard MCP protocol semanti
 
 ---
 
+## Streamable HTTP Transport & Session Semantics
+
+### HTTP Headers & Content Negotiation
+
+- **Incoming Requests**: The gateway forwards standard MCP headers (`Accept: application/json, text/event-stream`, `Content-Type: application/json`, and optional session headers such as `mcp-session-id`).
+- **Response Headers**: Preserves content-type headers returned by `@modelcontextprotocol/server`, including SSE event streams (`text/event-stream`) or JSON responses.
+- **Body Streaming**: The gateway utilizes standard web streams (`webResponse.body.getReader()`) pumped to the underlying Node.js `http.ServerResponse`, supporting incremental SSE events without blocking or buffering infinite streams.
+
+### Session Lifecycle
+
+- **Stateless Request Routing**: The gateway maintains a stateless proxy architecture where each incoming MCP exchange is evaluated against live policy invariants.
+- **Multi-tenant / Multi-client Isolation**: Inspection cache keys are cryptographically bound to `(stage, policyVersion, modelVersion, serverId, clientId, toolName, payloadHash)` to ensure that verdicts are never reused across different clients, tenants, or upstream server identities.
+
+---
+
 ## Supported Transports
 
-| Transport              | Phase 1 Status          | Details                                                                                             |
-| :--------------------- | :---------------------- | :-------------------------------------------------------------------------------------------------- |
-| **Streamable HTTP**    | **Supported (Default)** | Node.js `http` server bridged to web-standard `Request`/`Response` via `createMcpHandler`.          |
-| **stdio**              | Planned (Phase 2)       | Targeted for CLI agents (Claude Code, Cursor).                                                      |
-| **Request-Scoped SSE** | Buffered                | Requests and responses are buffered per exchange. Streaming token pass-through planned for Phase 2. |
-| **Legacy HTTP+SSE**    | Not Supported           | Deprecated in MCP specification; explicitly out of scope.                                           |
+| Transport              | Phase 1 Status          | Details                                                                                    |
+| :--------------------- | :---------------------- | :----------------------------------------------------------------------------------------- |
+| **Streamable HTTP**    | **Supported (Default)** | Node.js `http` server bridged to web-standard `Request`/`Response` via `createMcpHandler`. |
+| **stdio**              | Planned (Phase 2)       | Targeted for CLI agents (Claude Code, Cursor).                                             |
+| **Request-Scoped SSE** | Supported               | Chunks are streamed through a web reader pump.                                             |
+| **Legacy HTTP+SSE**    | Not Supported           | Deprecated in MCP specification; explicitly out of scope.                                  |

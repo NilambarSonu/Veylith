@@ -54,17 +54,22 @@ describe('Security Engine Benchmark & Evaluation', () => {
     let tn = 0; // correctly allowed benign
     let fn = 0; // missed malicious (allowed)
 
+    let deterministicBlocks = 0;
+    let tier3Inferences = 0;
+
     const latencies: number[] = [];
 
     for (const item of corpus) {
       const t0 = performance.now();
       let action: PolicyAction = 'allow';
+      let origin: string = 'deterministic';
 
       if (item.stage === 'discovery') {
         const outcome = await engine.inspectDiscovery([
           { name: item.name, description: String(item.payload) },
         ]);
         action = outcome.blockedTools.length > 0 ? 'block' : 'allow';
+        origin = outcome.results[0]?.origin ?? 'deterministic';
       } else if (item.stage === 'call_arguments') {
         const res = await engine.inspectArguments(
           {
@@ -78,6 +83,7 @@ describe('Security Engine Benchmark & Evaluation', () => {
           item.payload as Record<string, unknown>,
         );
         action = res.action;
+        origin = res.origin;
       } else if (item.stage === 'call_response') {
         const outcome = await engine.inspectResponse(
           {
@@ -91,10 +97,17 @@ describe('Security Engine Benchmark & Evaluation', () => {
           item.payload as Array<{ type: string; text?: string }>,
         );
         action = outcome.result.action;
+        origin = outcome.result.origin;
       }
 
       const elapsed = performance.now() - t0;
       latencies.push(elapsed);
+
+      if (origin === 'deterministic') {
+        if (action === 'block') deterministicBlocks += 1;
+      } else if (origin === 'mock' || origin === 'live') {
+        tier3Inferences += 1;
+      }
 
       const isMalicious = item.expectedAction === 'block';
       const wasBlocked = action === 'block';
@@ -122,9 +135,12 @@ describe('Security Engine Benchmark & Evaluation', () => {
     const report = adapter.tracker.getReport();
 
     console.log('\n======================================================');
-    console.log('         VEYLITH SECURITY BENCHMARK REPORT            ');
+    console.log('   VEYLITH SYNTHETIC EVALUATION BENCHMARK REPORT      ');
     console.log('======================================================');
-    console.log(`Total Corpus Items : ${corpus.length}`);
+    console.log('NOTICE: Evaluated on a 32-sample synthetic test corpus.');
+    console.log('Does NOT represent live-model or in-the-wild threat dataset.');
+    console.log('------------------------------------------------------');
+    console.log(`Corpus Samples     : ${corpus.length} (16 benign, 16 malicious)`);
     console.log(`True Positives (TP): ${tp}`);
     console.log(`True Negatives (TN): ${tn}`);
     console.log(`False Positives(FP): ${fp}`);
@@ -133,15 +149,23 @@ describe('Security Engine Benchmark & Evaluation', () => {
     console.log(`Recall             : ${(recall * 100).toFixed(1)}%`);
     console.log(`F1 Score           : ${(f1 * 100).toFixed(1)}%`);
     console.log('------------------------------------------------------');
+    console.log('INSPECTION TIER BREAKDOWN:');
+    console.log(`- Tier 1 Deterministic Blocks : ${deterministicBlocks} / 16 malicious`);
+    console.log(
+      `- Tier 2 Screener Bypass/Clean: ${corpus.length - tier3Inferences - deterministicBlocks}`,
+    );
+    console.log(`- Tier 3 Semantic Inferences  : ${tier3Inferences} (Mock Mode)`);
+    console.log(`- Live Meta Model Inferences  : 0 (Offline synthetic evaluation)`);
+    console.log('------------------------------------------------------');
     console.log(`Latency (Mean)     : ${meanLatency.toFixed(2)} ms`);
     console.log(`Latency (P50)      : ${p50.toFixed(2)} ms`);
     console.log(`Latency (P95)      : ${p95.toFixed(2)} ms`);
     console.log('------------------------------------------------------');
-    console.log(`Inference Calls    : ${report.requestCount}`);
     console.log(
-      `Total Tokens       : ${report.totalTokens} (Prompt: ${report.promptTokens}, Completion: ${report.completionTokens})`,
+      `Mock Token Usage   : ${report.totalTokens} tokens (Prompt: ${report.promptTokens}, Completion: ${report.completionTokens})`,
     );
-    console.log(`Estimated Spend    : $${report.estimatedCostUsd.toFixed(6)} USD`);
+    console.log(`Simulated Cost     : $${report.estimatedCostUsd.toFixed(6)} USD`);
+    console.log(`Actual Live Spend  : $0.000000 USD`);
     console.log('======================================================\n');
 
     expect(precision).toBeGreaterThanOrEqual(0.95);
