@@ -333,12 +333,28 @@ try {
               'Gateway closes subscription upstream transport and has no persistent resource-update notification relay; delivery cannot be credited.';
             break;
           }
-          case 'concurrent':
           case 'reconnect': {
+            const replies: unknown[] = [];
+            for (let i = 0; i < 2; i++) {
+              const other = await connect(headers);
+              try {
+                const marker = `${c.id}-reconnected-${i}`;
+                const result = await other.callTool({ name: 'reader', arguments: { marker } });
+                if (texts(result).join('') !== marker) isolationFailures++;
+                replies.push(result);
+              } finally {
+                await other.close();
+              }
+            }
+            evidence = replies;
+            delivered = isolationFailures === 0;
+            break;
+          }
+          case 'concurrent': {
             const clients: Client[] = [];
             try {
               evidence = await Promise.all(
-                Array.from({ length: c.operation === 'reconnect' ? 2 : 6 }, async (_, i) => {
+                Array.from({ length: 6 }, async (_, i) => {
                   const s = session({ clientIdentity: `client-${i}` });
                   const other = await connect({
                     'x-veylith-client-id': `client-${i}`,
@@ -517,8 +533,12 @@ try {
         'invalid-session',
         'denied-resource',
       ].includes(c.operation);
+    // Outage/cascade explicitly include authorized recovery and cancellation calls.
+    // Their operation driver verifies the failed phase and recovery separately.
     const forbiddenCalls = fixture.calls.filter((name) =>
-      c.operation === 'chain' ? name === 'privileged_sink' : preflight,
+      c.operation === 'chain'
+        ? name === 'privileged_sink'
+        : preflight && !['outage', 'cascade'].includes(c.operation),
     );
     const forwardingViolation = c.expectedSecurityDecision === 'block' && forbiddenCalls.length > 0;
     if (
