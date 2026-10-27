@@ -1,0 +1,50 @@
+[
+  {
+    "command": "pnpm format:check",
+    "exitCode": 0,
+    "durationMs": 1550.77,
+    "log": "format-check.log"
+  },
+  {
+    "command": "pnpm lint",
+    "exitCode": 0,
+    "durationMs": 1074.25,
+    "log": "lint.log"
+  },
+  {
+    "command": "pnpm typecheck",
+    "exitCode": 0,
+    "durationMs": 2989.35,
+    "log": "typecheck.log"
+  },
+  {
+    "command": "pnpm build",
+    "exitCode": 0,
+    "durationMs": 628.23,
+    "log": "build.log"
+  },
+  {
+    "command": "pnpm test:all",
+    "exitCode": 0,
+    "durationMs": 13400.42,
+    "log": "test-all.log"
+  },
+  {
+    "command": "pnpm demo:client",
+    "exitCode": 0,
+    "durationMs": 2408.76,
+    "log": "demo-client.log"
+  },
+  {
+    "command": "pnpm security:eval:typecheck",
+    "exitCode": 0,
+    "durationMs": 1121.74,
+    "log": "security-eval-typecheck.log"
+  },
+  {
+    "command": "pnpm security:remediation:typecheck",
+    "exitCode": 0,
+    "durationMs": 1044.17,
+    "log": "security-remediation-typecheck.log"
+  }
+]

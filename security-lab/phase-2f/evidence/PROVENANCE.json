@@ -1,0 +1,225 @@
+{
+  "baseCommit": "82b492a5d8c8ae54d2b7974df342e976914a7c49",
+  "evaluatedSourceCommit": "36fa675051f85437db55a5ccfff6ce18b7791392",
+  "measurementWorkingTree": "clean",
+  "branch": "dev/phase-2f-boundary-remediation",
+  "frozenFileSha256": {
+    "security-lab/v1/holdout.json": "2270b7052e864a84ec28f38fbd15eeed1ccb50447e0ce934de0d508f2337d89c",
+    "security-lab/v1/manifest.json": "9e9c3631be67ef284858b8a3a874be4866e917f25ed6d3c15ed6eafe1d68dacf",
+    "security-lab/v1/live-reserve.json": "e4f918504d7a54bf89a4f599fe6c6a2ef7de9a42c86909613c80de5f826ee276"
+  },
+  "originalEvidenceTree": "c23c6d92b44fe39bc2b5e21bb3eb57c2b5e73eba",
+  "changedFilesAtEvaluatedSource": [
+    ".gitignore",
+    "apps/gateway/src/config/index.ts",
+    "apps/gateway/src/http/local-boundary.ts",
+    "apps/gateway/src/server.ts",
+    "apps/gateway/tests/local-boundary.test.ts",
+    "apps/stdio-adapter/src/adapter.ts",
+    "docs/security/phase-2f/BOUNDARY-DESIGN.md",
+    "docs/security/phase-2f/LIVE-COMPATIBILITY.md",
+    "package.json",
+    "packages/core/src/index.ts",
+    "packages/core/src/inspection/index.ts",
+    "packages/policy-engine/package.json",
+    "packages/policy-engine/src/audit/chain.ts",
+    "packages/policy-engine/src/capabilities/registry.ts",
+    "packages/policy-engine/src/contracts/tool-schema.ts",
+    "packages/policy-engine/src/engine/index.ts",
+    "packages/policy-engine/src/index.ts",
+    "packages/policy-engine/src/routing/boundary.ts",
+    "packages/policy-engine/src/routing/inspector.ts",
+    "packages/policy-engine/src/sessions/manager.ts",
+    "packages/policy-engine/tests/phase-2f-boundary.test.ts",
+    "pnpm-lock.yaml",
+    "scripts/security-lab/fixture.ts",
+    "scripts/security-lab/live.ts",
+    "scripts/security-lab/worker.ts",
+    "scripts/security-remediation/lifecycle.ts",
+    "scripts/security-remediation/tsconfig.json",
+    "security-lab/phase-2f/before/base-194-plus-five-new.log.gz",
+    "security-lab/phase-2f/before/intermediate-capability-flag.log.gz",
+    "security-lab/phase-2f/before/intermediate-regressions.log.gz",
+    "security-lab/phase-2f/before/lifecycle-harness-mismatch.json.gz",
+    "security-lab/phase-2f/before/lifecycle-harness-mismatch.log.gz",
+    "security-lab/phase-2f/before/manual-routing-order-mismatch.log.gz",
+    "security-lab/phase-2f/before/metadata-key-order-reproduction.log.gz",
+    "security-lab/phase-2f/before/modern-client-negotiation-fixture.log.gz",
+    "security-lab/phase-2f/before/modern-listen-loaded-deadline.log.gz",
+    "security-lab/phase-2f/before/offline-link-attempt.log.gz",
+    "security-lab/phase-2f/before/protocol.log.gz",
+    "security-lab/phase-2f/before/provenance.json",
+    "security-lab/phase-2f/before/routing-retention.log.gz",
+    "tests/integration/phase-2f-protocol.test.ts",
+    "tests/integration/phase-2f-reproduction.test.ts"
+  ],
+  "newTests": 58,
+  "existingTests": 194,
+  "passedTests": 252,
+  "testFiles": 32,
+  "gates": [
+    {
+      "command": "pnpm format:check",
+      "exitCode": 0,
+      "durationMs": 1550.77,
+      "log": "format-check.log"
+    },
+    {
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "durationMs": 1074.25,
+      "log": "lint.log"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "durationMs": 2989.35,
+      "log": "typecheck.log"
+    },
+    {
+      "command": "pnpm build",
+      "exitCode": 0,
+      "durationMs": 628.23,
+      "log": "build.log"
+    },
+    {
+      "command": "pnpm test:all",
+      "exitCode": 0,
+      "durationMs": 13400.42,
+      "log": "test-all.log"
+    },
+    {
+      "command": "pnpm demo:client",
+      "exitCode": 0,
+      "durationMs": 2408.76,
+      "log": "demo-client.log"
+    },
+    {
+      "command": "pnpm security:eval:typecheck",
+      "exitCode": 0,
+      "durationMs": 1121.74,
+      "log": "security-eval-typecheck.log"
+    },
+    {
+      "command": "pnpm security:remediation:typecheck",
+      "exitCode": 0,
+      "durationMs": 1044.17,
+      "log": "security-remediation-typecheck.log"
+    }
+  ],
+  "developmentEvaluation": {
+    "samplesPerMode": 72,
+    "classifiedPerGatewayMode": 68,
+    "holdoutPredictionsDuringPhase2F": 0,
+    "reservedLiveCasesExecuted": 0,
+    "actualPaidCalls": 0,
+    "knownProviderInputTokens": 0,
+    "knownProviderOutputTokens": 0,
+    "estimatedCostUsd": 0
+  },
+  "reliabilityProbes": {
+    "passed": 13,
+    "total": 15,
+    "failedNames": [
+      "slow response consumer drains a large harmless response without truncation",
+      "six full MCP load and cleanup cycles with GC samples"
+    ]
+  },
+  "archives": {
+    "development-deterministic-only.json.gz": {
+      "sha256": "2635a2f05e2564418b4243ccb2515525f0e2a167b110da02aeb7af18e1bb6f80",
+      "uncompressedSha256": "cb8e8e8acb1c8e14c6ec31a88eb439884a8f1e01b2e0d9e0bc11b6ef5ca76eec",
+      "uncompressedBytes": 1836218
+    },
+    "development-direct.json.gz": {
+      "sha256": "cab8324eeed1d439915a9d36061e6901cd21fa78df49b8e50024cff482220d09",
+      "uncompressedSha256": "cb73d263f6498ab49a1404583be07008792d828a93fc5762fd4537722be119f6",
+      "uncompressedBytes": 87784
+    },
+    "development-mock-semantic.json.gz": {
+      "sha256": "2120fda6e31e2cbc048253c980b694aad91eed44ca8219c3ca4ad3544b4dd717",
+      "uncompressedSha256": "61da0fcdb559e3ad1c112cfa61c151e74dae6912069648e3c64c03d360ffb88d",
+      "uncompressedBytes": 2594274
+    },
+    "development-summary.json.gz": {
+      "sha256": "52a3a0ed4915845b50908a2b54b0a863db234f48efffb48700bb4e8fc216900a",
+      "uncompressedSha256": "4f253ff84c8830f60ef9be8c3b056702f05148711964cd494bd6561caafef571",
+      "uncompressedBytes": 36882
+    },
+    "lifecycle-1000.json.gz": {
+      "sha256": "377d2af62e217f36a38aff2353e7be61b696d5513d609063a1a101acceecec7f",
+      "uncompressedSha256": "8b8c83e27dc116251ec2951117fefbc6c97921af847b98d252295b066f3fd415",
+      "uncompressedBytes": 1643826
+    },
+    "lifecycle-100.json.gz": {
+      "sha256": "ca1ca11650da8dbb024445850f8a27b3cdd0cc5b63ace438a2a44ae1ab5daa7e",
+      "uncompressedSha256": "df0cda2fb65070cb17a9392f7a66a48d8004821f0487eeb533df5136c19a25fa",
+      "uncompressedBytes": 163982
+    },
+    "reliability.json.gz": {
+      "sha256": "6966b9bc2ab3f30d40a1a60bb894210590389a3ceeb80b6b885ce5aed6303372",
+      "uncompressedSha256": "c220b91de62d01e9d2a03cdac63f667f8f3f74a27449234ff102e8be507ce97b",
+      "uncompressedBytes": 4693
+    },
+    "security-remediation-typecheck.log.gz": {
+      "sha256": "9155f5671dd363b0cd185451949a5fe6f2b6b908cab8ee297d60d640c928e880",
+      "uncompressedSha256": "adc1bf95cad2ecd3af925e7c79579445f0de321712959add5058e3e493f449d0",
+      "uncompressedBytes": 61
+    },
+    "format-check.log.gz": {
+      "sha256": "d825870dbd39c18a8be5d0fefc8e494a773be0ed458f0f342ba1b9752493bb3b",
+      "uncompressedSha256": "1d66faad74f5e8709353f7288592866bd3a9095da1174a916e7aa632949971e2",
+      "uncompressedBytes": 87
+    },
+    "lint.log.gz": {
+      "sha256": "a3fc63b15eb42f707fa9d63b0a9a9628dd72eaec4b6f4cd626a9cf98d67ebe19",
+      "uncompressedSha256": "050c69da23536758722729aeda55a8d0fb9d557495ef6d33d70873a3b64a71c1",
+      "uncompressedBytes": 11
+    },
+    "typecheck.log.gz": {
+      "sha256": "fd78b2b2ad2693e3aef45740fd986d7fbb3501cb8e8d18f37166ee5f9b72809e",
+      "uncompressedSha256": "ff8f3a8a4d8e3305fe0c429bab680c6ef3cf363cba2fddc05c957c939a44438d",
+      "uncompressedBytes": 615
+    },
+    "demo-client.log.gz": {
+      "sha256": "697559eaed3d1300da6557cfc2c999367291bde8ccc18b409dd9a15888944e6f",
+      "uncompressedSha256": "e98e5039cac5438af2a038f7a504e576293e1494d36b6a93b1a186e1f9a7a003",
+      "uncompressedBytes": 2973
+    },
+    "test-all.log.gz": {
+      "sha256": "5a31ec13cec0779970ec4c5e0ecedf59cb1c3a89a57e40399e040e5e238cfa95",
+      "uncompressedSha256": "54a0ecae628caa06e84321ffb7ba2d36eb31b2e2f473ba4bd1b3c76de368394a",
+      "uncompressedBytes": 576683
+    },
+    "security-eval-typecheck.log.gz": {
+      "sha256": "14a0bf90fe4665407528c0df818124824c13c5fb83364f10d58f955934e779cc",
+      "uncompressedSha256": "cbc378f888fe21f4210b505b67b85444f96cd9348127fc316d95f010f4dc59d5",
+      "uncompressedBytes": 53
+    },
+    "build.log.gz": {
+      "sha256": "2a6a7e893818b5bbcbfcf6ae319ab4375fa33bf0017b2afcf8e0f37c65ec87ae",
+      "uncompressedSha256": "86a9445a322884ce91e5eb6bf49fbd4aa69e9f2085a03486a764c1305abdefb6",
+      "uncompressedBytes": 865
+    },
+    "development.log.gz": {
+      "sha256": "13be8d2cc4e6d2722025f2a2ec1fc70cbe2d34313ecd00f4a3d6f9e980d35842",
+      "uncompressedSha256": "3ce74e3d39621c797e119c6fb0cef1356349056c7b7ecb7342d42fcc1d31f1bd",
+      "uncompressedBytes": 15943
+    },
+    "lifecycle-1000.log.gz": {
+      "sha256": "591d212d18cb50ed4c034e0096eb728e9ca4bbcc86ef2feb670355a10cf83eef",
+      "uncompressedSha256": "e6a9c8d5bae1cff92dd4dbbc5af47e280a032911462817e78d37e096d2fe5005",
+      "uncompressedBytes": 3417
+    },
+    "reliability.log.gz": {
+      "sha256": "6bad88d6f54fb1a3706de69d2a0bdfb67846ef2712d57368cb37bffac5d0505c",
+      "uncompressedSha256": "6154e614b78d7c70575e200aea9c34c54cb32fba5ba6b7f8a2b4271fb3b06c66",
+      "uncompressedBytes": 5194
+    }
+  },
+  "note": "Subsequent delivery commit adds documentation and archived evidence only. Digests are not external authenticity anchors.",
+  "jsonSha256": {
+    "gates.json": "0c2f54fc802525b2e1e00c67220bd9c23a31694af58eb6229f1b555ca5035dcf",
+    "development-comparison.json": "88cf6bd963a6b45627fcb252b2c182e1c68c0e9a24a2f2ad89071c3b299dcb94"
+  }
+}
