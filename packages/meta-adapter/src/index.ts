@@ -16,7 +16,7 @@ export type {
 export { ModelClassificationSchema } from './types.js';
 export type { MetaAdapterConfig } from './config.js';
 export { loadMetaConfig } from './config.js';
-export type { UsageReport } from './tracker.js';
+export type { UsageReport, TokenUsageMetrics } from './tracker.js';
 export { UsageTracker } from './tracker.js';
 export { MetaMuseSecurityAdapter, CLASSIFICATION_JSON_SCHEMA } from './adapter.js';
 

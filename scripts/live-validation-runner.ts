@@ -176,19 +176,28 @@ async function main() {
     model: process.env['META_MODEL'] ?? 'muse-spark-1.3',
     maxRequestsPerRun: MAX_ALLOWED_REQUESTS,
     dailyBudgetUsd: MAX_BUDGET_USD,
-    maxOutputTokens: 256,
-    timeoutMs: 8000,
+    maxOutputTokens: 1024,
+    reasoningEffort: 'minimal',
+    timeoutMs: 10000,
   });
 
+  const isRunAll = process.argv.includes('--all');
+  const testCasesToRun = isRunAll ? LIVE_TEST_CASES : [LIVE_TEST_CASES[0]!];
+
   console.log('\nConfiguration:');
-  console.log(`- Model Target    : muse-spark-1.3`);
-  console.log(`- Endpoint        : https://api.meta.ai/v1/responses`);
-  console.log(`- Request Cap     : Strictly bounded at ${MAX_ALLOWED_REQUESTS} requests`);
+  console.log(`- Model Target      : muse-spark-1.3`);
+  console.log(`- Endpoint          : https://api.meta.ai/v1/responses`);
+  console.log(`- Reasoning Effort  : minimal (Optimized for structured classification)`);
+  console.log(`- Max Output Tokens : 1024 (Accommodates reasoning tokens + JSON verdict)`);
   console.log(
-    `- Budget Ceiling  : $${MAX_BUDGET_USD.toFixed(2)} USD (Application-level guardrail)`,
+    `- Execution Scope   : ${isRunAll ? 'ALL 5 cases' : 'SINGLE case (Case 1: Benign CVE lookup)'}`,
   );
-  console.log(`- Auto-Retry      : DISABLED (Never retries paid calls on failure)`);
-  console.log(`- Test Cases      : ${LIVE_TEST_CASES.length} representative holdout items\n`);
+  console.log(`- Request Cap       : Strictly bounded at ${MAX_ALLOWED_REQUESTS} requests`);
+  console.log(
+    `- Budget Ceiling    : $${MAX_BUDGET_USD.toFixed(2)} USD (Application-level guardrail)`,
+  );
+  console.log(`- Auto-Retry        : DISABLED (Never retries paid calls on failure)`);
+  console.log(`- Stop Policy       : HALT ON FIRST FAILURE\n`);
 
   console.log('------------------------------------------------------------------------');
   console.log('EXECUTING CONTROLLED VALIDATION RUN:');
@@ -206,9 +215,9 @@ async function main() {
     explanation: string;
   }> = [];
 
-  for (let i = 0; i < LIVE_TEST_CASES.length; i++) {
-    const testCase = LIVE_TEST_CASES[i]!;
-    console.log(`\n[Request ${i + 1}/${LIVE_TEST_CASES.length}] ${testCase.id}: ${testCase.title}`);
+  for (let i = 0; i < testCasesToRun.length; i++) {
+    const testCase = testCasesToRun[i]!;
+    console.log(`\n[Request ${i + 1}/${testCasesToRun.length}] ${testCase.id}: ${testCase.title}`);
     console.log(`  Stage: ${testCase.stage} | Target Tool: ${testCase.toolName}`);
 
     // Pre-flight safeguard check
@@ -226,7 +235,7 @@ async function main() {
       });
 
       const elapsed = Math.round(performance.now() - t0);
-      const matched = outcome.action === testCase.expectedAction;
+      const matched = outcome.action === testCase.expectedAction && outcome.action !== 'review';
 
       console.log(`  Latency     : ${elapsed} ms`);
       console.log(
@@ -234,7 +243,17 @@ async function main() {
       );
       console.log(`  Category    : ${outcome.threatCategory}`);
       console.log(`  Confidence  : ${(outcome.confidence * 100).toFixed(1)}%`);
-      console.log(`  Tokens Used : ${outcome.tokenUsage?.totalTokens ?? 'N/A'}`);
+      console.log(
+        `  Tokens Used : ${outcome.tokenUsage ? outcome.tokenUsage.totalTokens : outcome.hasUnknownUsage ? 'UNKNOWN (Missing provider usage metadata)' : '0'}`,
+      );
+      if (outcome.tokenUsage) {
+        console.log(
+          `    - Input   : ${outcome.tokenUsage.promptTokens} (Cached: ${outcome.tokenUsage.cachedPromptTokens ?? 0})`,
+        );
+        console.log(
+          `    - Output  : ${outcome.tokenUsage.completionTokens} (Reasoning: ${outcome.tokenUsage.reasoningTokens ?? 0})`,
+        );
+      }
       console.log(`  Explanation : ${outcome.explanation}`);
 
       results.push({
@@ -249,11 +268,13 @@ async function main() {
         explanation: outcome.explanation,
       });
 
-      // Stop immediately on authentication errors or fatal fallback
-      if (outcome.explanation.includes('HTTP 401') || outcome.explanation.includes('HTTP 403')) {
+      // Strict Stop-on-First-Failure Policy
+      if (!matched || outcome.action === 'review') {
         console.error(
-          '\n[FATAL AUTH ERROR] Authentication failed. Stopping live test immediately.',
+          `\n[STOP ON FAILURE]: Halting run immediately due to ${outcome.action === 'review' ? 'classification fallback / provider error' : 'unexpected verdict mismatch'}.`,
         );
+        console.error(`  Failure Explanation: ${outcome.explanation}`);
+        console.error('  Safeguard active: Halting further requests. Zero retries.');
         break;
       }
     } catch (err) {
@@ -268,30 +289,39 @@ async function main() {
   console.log('\n========================================================================');
   console.log('              LIVE META MUSE VALIDATION SUMMARY REPORT                  ');
   console.log('========================================================================');
-  console.log(`Total Requests Sent : ${finalReport.requestCount} / ${MAX_ALLOWED_REQUESTS}`);
-  console.log(`Successful Calls    : ${finalReport.requestCount - finalReport.failureCount}`);
-  console.log(`Failed Calls        : ${finalReport.failureCount}`);
-  console.log(`Total Tokens Used   : ${finalReport.totalTokens}`);
+  console.log(`Attempted Requests       : ${finalReport.requestCount} / ${MAX_ALLOWED_REQUESTS}`);
+  console.log(`Completed Provider Calls : ${finalReport.completedProviderRequests}`);
+  console.log(`Successful Verdicts      : ${finalReport.successfulClassifications}`);
+  console.log(`Failed Verdicts          : ${finalReport.failedClassifications}`);
+  console.log('------------------------------------------------------------------------');
+  console.log('TOKEN & USAGE ACCOUNTING:');
+  console.log(`Total Tokens Recorded    : ${finalReport.totalTokens}`);
   console.log(
-    `  - Prompt Tokens   : ${finalReport.promptTokens} (Cached: ${finalReport.cachedPromptTokens})`,
+    `  - Input Tokens         : ${finalReport.promptTokens} (Cached: ${finalReport.cachedPromptTokens})`,
   );
   console.log(
-    `  - Output Tokens   : ${finalReport.completionTokens} (Reasoning: ${finalReport.reasoningTokens})`,
+    `  - Output Tokens        : ${finalReport.completionTokens} (Reasoning: ${finalReport.reasoningTokens})`,
   );
-  console.log(`Estimated Spend     : $${finalReport.estimatedCostUsd.toFixed(6)} USD`);
-  console.log(`Average Latency     : ${finalReport.averageLatencyMs.toFixed(2)} ms`);
+  console.log(
+    `Usage Completeness       : ${finalReport.hasUnknownUsage ? `INCOMPLETE (${finalReport.unknownUsageCount} provider response(s) lacked usage metadata)` : 'COMPLETE (100% provider usage metadata captured)'}`,
+  );
+  console.log(
+    `Estimated Spend          : $${finalReport.estimatedCostUsd.toFixed(6)} USD (Local application estimate)`,
+  );
+  console.log(
+    `Average Request Latency  : ${finalReport.averageLatencyMs.toFixed(2)} ms (Across all attempted requests)`,
+  );
   console.log('------------------------------------------------------------------------');
   console.log('VALIDATION OUTCOMES:');
   for (const r of results) {
     console.log(
-      `  [${r.matched ? 'OK' : 'MISMATCH'}] ${r.id}: action=${r.action} (expected ${r.expected}) in ${r.durationMs}ms`,
+      `  [${r.matched ? 'PASS' : 'FAIL'}] ${r.id}: action=${r.action} (expected ${r.expected}) in ${r.durationMs}ms`,
     );
   }
   console.log('------------------------------------------------------------------------');
   console.log('IMPORTANT BILLING VERIFICATION:');
-  console.log('Local usage tracking is an application-level guardrail, not a guaranteed');
-  console.log('provider-side hard ceiling. Please log in to your Meta Developer Portal');
-  console.log('to confirm exact billed usage:');
+  console.log('Local usage tracking is an application-level guardrail, not a confirmed');
+  console.log('provider-side invoice. Please verify confirmed charges in Meta Billing:');
   console.log('  https://dev.meta.ai/ -> Settings -> Billing & Usage');
   console.log('========================================================================\n');
 }

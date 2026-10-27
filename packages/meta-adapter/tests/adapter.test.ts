@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   MetaMuseSecurityAdapter,
   ModelClassificationSchema,
@@ -206,5 +206,192 @@ describe('MetaMuseSecurityAdapter', () => {
     const result = await adapter.inspect('sample payload', 'call_arguments');
     expect(result.explanation).not.toContain('sk-test-secret-12345678901234567890');
     expect(result.explanation).toContain('Meta model outage');
+  });
+
+  describe('Live Response Handling & Accounting (Mocked Fetch)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('rejects truncated responses (finish_reason=length) but captures billable token usage and latency', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({
+          status: 'incomplete',
+          finish_reason: 'length',
+          output: [
+            {
+              finish_reason: 'length',
+              text: '{"flagged": true, "threatCategory": "tool_poisoning", "action": "blo',
+            },
+          ],
+          usage: {
+            input_tokens: 450,
+            output_tokens: 256,
+            output_tokens_details: {
+              reasoning_tokens: 180,
+            },
+          },
+        }),
+      } as Response);
+
+      const adapter = new MetaMuseSecurityAdapter({
+        mode: 'live',
+        apiKey: 'test-valid-key',
+        maxOutputTokens: 1024,
+      });
+
+      const result = await adapter.inspect('Suspicious payload', 'discovery');
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      // Strictly rejected: no synthetic allow/block fabricated
+      expect(result.flagged).toBe(true);
+      expect(result.action).toBe('review');
+      expect(result.explanation).toContain('truncated or marked incomplete (finish_reason=length)');
+
+      // Token usage captured from provider response
+      expect(result.tokenUsage?.promptTokens).toBe(450);
+      expect(result.tokenUsage?.completionTokens).toBe(256);
+      expect(result.tokenUsage?.reasoningTokens).toBe(180);
+      expect(result.hasUnknownUsage).toBe(false);
+
+      // Tracker records completed provider call and token cost
+      const report = adapter.tracker.getReport();
+      expect(report.requestCount).toBe(1);
+      expect(report.completedProviderRequests).toBe(1);
+      expect(report.failedClassifications).toBe(1);
+      expect(report.totalTokens).toBe(706);
+      expect(report.estimatedCostUsd).toBeGreaterThan(0);
+      expect(report.averageLatencyMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('flags hasUnknownUsage when provider response omits usage metadata', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({
+          finish_reason: 'length',
+          output: [{ finish_reason: 'length', text: 'incomplete...' }],
+        }),
+      } as Response);
+
+      const adapter = new MetaMuseSecurityAdapter({
+        mode: 'live',
+        apiKey: 'test-valid-key',
+      });
+
+      const result = await adapter.inspect('Sample content', 'call_arguments');
+
+      expect(result.action).toBe('review');
+      expect(result.tokenUsage).toBeUndefined();
+      expect(result.hasUnknownUsage).toBe(true);
+
+      const report = adapter.tracker.getReport();
+      expect(report.completedProviderRequests).toBe(1);
+      expect(report.hasUnknownUsage).toBe(true);
+      expect(report.unknownUsageCount).toBe(1);
+      expect(report.totalTokens).toBe(0);
+    });
+
+    it('successfully processes valid structured classification and records usage', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({
+          status: 'completed',
+          finish_reason: 'stop',
+          output: [
+            {
+              finish_reason: 'stop',
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    flagged: false,
+                    threatCategory: 'none',
+                    action: 'allow',
+                    confidence: 0.99,
+                    explanation: 'Clean security tool with no hostile commands',
+                    evidence: [],
+                  }),
+                },
+              ],
+            },
+          ],
+          usage: {
+            input_tokens: 350,
+            output_tokens: 45,
+            input_tokens_details: { cached_tokens: 50 },
+            output_tokens_details: { reasoning_tokens: 20 },
+          },
+        }),
+      } as Response);
+
+      const adapter = new MetaMuseSecurityAdapter({
+        mode: 'live',
+        apiKey: 'test-valid-key',
+      });
+
+      const result = await adapter.inspect('cve lookup', 'discovery');
+
+      expect(result.flagged).toBe(false);
+      expect(result.action).toBe('allow');
+      expect(result.confidence).toBe(0.99);
+      expect(result.evidence).toEqual([]);
+      expect(result.tokenUsage?.promptTokens).toBe(350);
+      expect(result.tokenUsage?.cachedPromptTokens).toBe(50);
+      expect(result.tokenUsage?.completionTokens).toBe(45);
+      expect(result.tokenUsage?.reasoningTokens).toBe(20);
+
+      const report = adapter.tracker.getReport();
+      expect(report.successfulClassifications).toBe(1);
+      expect(report.failedClassifications).toBe(0);
+      expect(report.totalTokens).toBe(395);
+    });
+
+    it('rejects invalid structured response failing Zod schema while recording billable usage', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({
+          finish_reason: 'stop',
+          output: [
+            {
+              finish_reason: 'stop',
+              text: JSON.stringify({
+                flagged: true,
+                // missing action and threatCategory
+                confidence: 0.9,
+                explanation: 'malformed model output',
+              }),
+            },
+          ],
+          usage: {
+            input_tokens: 200,
+            output_tokens: 30,
+          },
+        }),
+      } as Response);
+
+      const adapter = new MetaMuseSecurityAdapter({
+        mode: 'live',
+        apiKey: 'test-valid-key',
+      });
+
+      const result = await adapter.inspect('malformed test', 'call_response');
+
+      expect(result.action).toBe('review');
+      expect(result.explanation).toContain('Classification schema validation failed');
+      expect(result.tokenUsage?.totalTokens).toBe(230);
+
+      const report = adapter.tracker.getReport();
+      expect(report.failedClassifications).toBe(1);
+      expect(report.totalTokens).toBe(230);
+    });
   });
 });

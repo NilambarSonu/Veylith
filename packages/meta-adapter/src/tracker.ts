@@ -13,15 +13,27 @@
  * a subset for observability only.
  */
 
+export interface TokenUsageMetrics {
+  promptTokens?: number;
+  completionTokens?: number;
+  cachedPromptTokens?: number;
+  reasoningTokens?: number;
+}
+
 export interface UsageReport {
   readonly requestCount: number;
+  readonly completedProviderRequests: number;
+  readonly successfulClassifications: number;
+  readonly failedClassifications: number;
+  readonly failureCount: number; // Backward compatibility alias
   readonly promptTokens: number;
   readonly cachedPromptTokens: number;
   readonly completionTokens: number; // Represents total output tokens (including reasoning tokens)
   readonly reasoningTokens: number; // Subset of completionTokens tracked for observability
   readonly totalTokens: number;
+  readonly hasUnknownUsage: boolean;
+  readonly unknownUsageCount: number;
   readonly estimatedCostUsd: number;
-  readonly failureCount: number;
   readonly averageLatencyMs: number;
   readonly maxRequestsPerRun: number;
   readonly dailyBudgetUsd: number;
@@ -29,12 +41,18 @@ export interface UsageReport {
 
 export class UsageTracker {
   private requestCount = 0;
+  private completedProviderRequests = 0;
+  private successfulClassifications = 0;
+  private failedClassifications = 0;
+  private failureCount = 0;
   private promptTokens = 0;
   private cachedPromptTokens = 0;
   private completionTokens = 0; // Total output tokens (reasoning tokens already included)
   private reasoningTokens = 0; // Observability subset
-  private failureCount = 0;
+  private hasUnknownUsage = false;
+  private unknownUsageCount = 0;
   private totalLatencyMs = 0;
+  private latencyRecordedCount = 0;
 
   // Official Pricing constants (USD per token)
   private readonly standardInputPriceUsd = 0.00000125; // $1.25 / 1M
@@ -65,7 +83,7 @@ export class UsageTracker {
     }
   }
 
-  /** Record a completed inference request with tokens and latency. */
+  /** Record a completed inference request that produced a valid classification. */
   recordSuccess(
     promptTokens: number,
     completionTokens: number,
@@ -74,17 +92,55 @@ export class UsageTracker {
     reasoningTokens = 0,
   ): void {
     this.requestCount += 1;
+    this.completedProviderRequests += 1;
+    this.successfulClassifications += 1;
     this.promptTokens += promptTokens;
     this.cachedPromptTokens += Math.min(cachedPromptTokens, promptTokens);
     this.completionTokens += completionTokens;
     this.reasoningTokens += reasoningTokens;
-    this.totalLatencyMs += latencyMs;
+    if (latencyMs > 0) {
+      this.totalLatencyMs += latencyMs;
+      this.latencyRecordedCount += 1;
+    }
   }
 
-  /** Record an inference failure. */
-  recordFailure(): void {
+  /**
+   * Record a failed inference request (e.g. truncation, malformed JSON, network error).
+   * Billable tokens from incomplete provider responses are captured if present.
+   */
+  recordFailure(
+    tokens?: TokenUsageMetrics | null,
+    latencyMs?: number,
+    isProviderResponse = false,
+  ): void {
     this.requestCount += 1;
     this.failureCount += 1;
+    this.failedClassifications += 1;
+    if (isProviderResponse) {
+      this.completedProviderRequests += 1;
+    }
+
+    if (
+      tokens &&
+      (typeof tokens.promptTokens === 'number' || typeof tokens.completionTokens === 'number')
+    ) {
+      const p = tokens.promptTokens ?? 0;
+      const c = tokens.completionTokens ?? 0;
+      const cached = tokens.cachedPromptTokens ?? 0;
+      const r = tokens.reasoningTokens ?? 0;
+      this.promptTokens += p;
+      this.cachedPromptTokens += Math.min(cached, p);
+      this.completionTokens += c;
+      this.reasoningTokens += r;
+    } else if (isProviderResponse) {
+      this.hasUnknownUsage = true;
+      this.unknownUsageCount += 1;
+    }
+
+    if (typeof latencyMs === 'number' && latencyMs > 0) {
+      this.totalLatencyMs += latencyMs;
+      this.latencyRecordedCount += 1;
+    }
   }
 
   /** Calculate current estimated cost in USD based on standard vs cached input and output rates. */
@@ -101,19 +157,22 @@ export class UsageTracker {
   getReport(): UsageReport {
     const totalTokens = this.promptTokens + this.completionTokens;
     const avgLatency =
-      this.requestCount > 0
-        ? this.totalLatencyMs / (this.requestCount - this.failureCount || 1)
-        : 0;
+      this.latencyRecordedCount > 0 ? this.totalLatencyMs / this.latencyRecordedCount : 0;
 
     return {
       requestCount: this.requestCount,
+      completedProviderRequests: this.completedProviderRequests,
+      successfulClassifications: this.successfulClassifications,
+      failedClassifications: this.failedClassifications,
+      failureCount: this.failureCount,
       promptTokens: this.promptTokens,
       cachedPromptTokens: this.cachedPromptTokens,
       completionTokens: this.completionTokens,
       reasoningTokens: this.reasoningTokens,
       totalTokens,
+      hasUnknownUsage: this.hasUnknownUsage,
+      unknownUsageCount: this.unknownUsageCount,
       estimatedCostUsd: Math.round(this.getEstimatedCostUsd() * 1000000) / 1000000,
-      failureCount: this.failureCount,
       averageLatencyMs: Math.round(avgLatency * 100) / 100,
       maxRequestsPerRun: this.maxRequestsPerRun,
       dailyBudgetUsd: this.dailyBudgetUsd,
@@ -123,11 +182,17 @@ export class UsageTracker {
   /** Reset all usage counters. */
   reset(): void {
     this.requestCount = 0;
+    this.completedProviderRequests = 0;
+    this.successfulClassifications = 0;
+    this.failedClassifications = 0;
+    this.failureCount = 0;
     this.promptTokens = 0;
     this.cachedPromptTokens = 0;
     this.completionTokens = 0;
     this.reasoningTokens = 0;
-    this.failureCount = 0;
+    this.hasUnknownUsage = false;
+    this.unknownUsageCount = 0;
     this.totalLatencyMs = 0;
+    this.latencyRecordedCount = 0;
   }
 }

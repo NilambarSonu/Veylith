@@ -18,7 +18,7 @@ export interface MetaAdapterConfig {
   readonly timeoutMs: number;
   readonly dailyBudgetUsd: number;
   readonly maxRequestsPerRun: number;
-  readonly reasoningEffort: 'low' | 'medium' | 'high';
+  readonly reasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
 }
 
 export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdapterConfig {
@@ -35,7 +35,7 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
   const model = overrides?.model ?? process.env['META_MODEL'] ?? 'muse-spark-1.3';
 
   const maxOutputTokens =
-    overrides?.maxOutputTokens ?? parseInt(process.env['META_MAX_OUTPUT_TOKENS'] ?? '256', 10);
+    overrides?.maxOutputTokens ?? parseInt(process.env['META_MAX_OUTPUT_TOKENS'] ?? '1024', 10);
 
   const timeoutMs =
     overrides?.timeoutMs ?? parseInt(process.env['META_REQUEST_TIMEOUT_MS'] ?? '5000', 10);
@@ -47,12 +47,15 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
     overrides?.maxRequestsPerRun ?? parseInt(process.env['META_MAX_REQUESTS_PER_RUN'] ?? '10', 10);
 
   const reasoningEffortRaw =
-    overrides?.reasoningEffort ?? process.env['META_REASONING_EFFORT'] ?? 'low';
-  const reasoningEffort: 'low' | 'medium' | 'high' = ['low', 'medium', 'high'].includes(
-    reasoningEffortRaw,
-  )
-    ? (reasoningEffortRaw as 'low' | 'medium' | 'high')
-    : 'low';
+    overrides?.reasoningEffort ?? process.env['META_REASONING_EFFORT'] ?? 'minimal';
+  const reasoningEffort: 'minimal' | 'low' | 'medium' | 'high' = [
+    'minimal',
+    'low',
+    'medium',
+    'high',
+  ].includes(reasoningEffortRaw)
+    ? (reasoningEffortRaw as 'minimal' | 'low' | 'medium' | 'high')
+    : 'minimal';
 
   // If live mode is requested, an API key is required
   if (mode === 'live' && (!apiKey || apiKey.trim().length === 0)) {

@@ -49,6 +49,7 @@ export interface SemanticInspectionResult {
   readonly durationMs: number;
   readonly mode: MetaAiMode;
   readonly model: string;
+  readonly hasUnknownUsage?: boolean;
 }
 
 /** Interface for Meta Muse Security Adapter. */

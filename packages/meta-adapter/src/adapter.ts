@@ -267,6 +267,14 @@ ${sanitizedUntrustedContent}
 
     const endpoint = `${this.config.apiBaseUrl.replace(/\/$/, '')}/responses`;
 
+    let extractedUsage: {
+      promptTokens: number;
+      outputTokens: number;
+      cachedPromptTokens: number;
+      reasoningTokens: number;
+    } | null = null;
+    let isProviderResponse = false;
+
     try {
       const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
@@ -299,6 +307,7 @@ ${sanitizedUntrustedContent}
         throw new Error(`Meta API error: HTTP ${response.status} ${response.statusText}`);
       }
 
+      isProviderResponse = true;
       const rawJson = (await response.json()) as {
         status?: string;
         finish_reason?: string;
@@ -327,7 +336,30 @@ ${sanitizedUntrustedContent}
         };
       };
 
-      // Check for incomplete or truncated status from Meta Responses API
+      // 1. Extract provider usage metadata immediately if available
+      if (rawJson.usage && typeof rawJson.usage === 'object') {
+        const promptTokens = rawJson.usage.input_tokens ?? rawJson.usage.prompt_tokens ?? 0;
+        const cachedPromptTokens =
+          rawJson.usage.input_tokens_details?.cached_tokens ??
+          rawJson.usage.cached_tokens ??
+          rawJson.usage.prompt_tokens_details?.cached_tokens ??
+          0;
+        const outputTokens = rawJson.usage.output_tokens ?? rawJson.usage.completion_tokens ?? 0;
+        const reasoningTokens =
+          rawJson.usage.output_tokens_details?.reasoning_tokens ??
+          rawJson.usage.reasoning_tokens ??
+          rawJson.usage.completion_tokens_details?.reasoning_tokens ??
+          0;
+
+        extractedUsage = {
+          promptTokens,
+          outputTokens,
+          cachedPromptTokens,
+          reasoningTokens,
+        };
+      }
+
+      // 2. Check for incomplete or truncated status from Meta Responses API
       const isStatusIncomplete =
         rawJson.status === 'incomplete' ||
         rawJson.status === 'failed' ||
@@ -342,7 +374,7 @@ ${sanitizedUntrustedContent}
         );
       }
 
-      // Extract model text from Meta Responses format (output[].content[].text) or standard fields
+      // 3. Extract model text from Meta Responses format (output[].content[].text) or standard fields
       let rawText = '';
       if (typeof rawJson.text === 'string' && rawJson.text.trim().length > 0) {
         rawText = rawJson.text;
@@ -372,7 +404,7 @@ ${sanitizedUntrustedContent}
         throw new Error('Meta model returned empty response output');
       }
 
-      // Parse JSON without fabricating / repairing truncated outputs
+      // 4. Parse JSON without fabricating / repairing truncated outputs
       const unverifiedJson = this.extractJson(rawText);
       const parseResult = ModelClassificationSchema.safeParse(unverifiedJson);
 
@@ -384,24 +416,10 @@ ${sanitizedUntrustedContent}
       const parsed = parseResult.data;
 
       const durationMs = Math.round((performance.now() - start) * 100) / 100;
-      const promptTokens =
-        rawJson.usage?.input_tokens ??
-        rawJson.usage?.prompt_tokens ??
-        Math.round(userPrompt.length / 4);
-      const cachedPromptTokens =
-        rawJson.usage?.input_tokens_details?.cached_tokens ??
-        rawJson.usage?.cached_tokens ??
-        rawJson.usage?.prompt_tokens_details?.cached_tokens ??
-        0;
-      const outputTokens =
-        rawJson.usage?.output_tokens ??
-        rawJson.usage?.completion_tokens ??
-        Math.round(rawText.length / 4);
-      const reasoningTokens =
-        rawJson.usage?.output_tokens_details?.reasoning_tokens ??
-        rawJson.usage?.reasoning_tokens ??
-        rawJson.usage?.completion_tokens_details?.reasoning_tokens ??
-        0;
+      const promptTokens = extractedUsage?.promptTokens ?? Math.round(userPrompt.length / 4);
+      const cachedPromptTokens = extractedUsage?.cachedPromptTokens ?? 0;
+      const outputTokens = extractedUsage?.outputTokens ?? Math.round(rawText.length / 4);
+      const reasoningTokens = extractedUsage?.reasoningTokens ?? 0;
 
       // Note: outputTokens already includes reasoningTokens; do not double count!
       this.tracker.recordSuccess(
@@ -418,7 +436,7 @@ ${sanitizedUntrustedContent}
         action: parsed.action,
         explanation: parsed.explanation,
         confidence: parsed.confidence,
-        evidence: parsed.evidence ?? [],
+        evidence: parsed.evidence,
         rawScore: parsed.confidence,
         tokenUsage: {
           promptTokens,
@@ -432,17 +450,25 @@ ${sanitizedUntrustedContent}
         model: this.config.model,
       };
     } catch (err) {
-      this.tracker.recordFailure();
       const durationMs = Math.round((performance.now() - start) * 100) / 100;
-      const errMsg = err instanceof Error ? err.message : String(err);
+      this.tracker.recordFailure(
+        extractedUsage
+          ? {
+              promptTokens: extractedUsage.promptTokens,
+              completionTokens: extractedUsage.outputTokens,
+              cachedPromptTokens: extractedUsage.cachedPromptTokens,
+              reasoningTokens: extractedUsage.reasoningTokens,
+            }
+          : null,
+        durationMs,
+        isProviderResponse,
+      );
 
-      // Safe error message: redact any API keys or tokens
+      const errMsg = err instanceof Error ? err.message : String(err);
       const sanitizedErrMsg = errMsg
         .replace(/(?:Bearer\s+)[a-zA-Z0-9_\-.]+/gi, 'Bearer [REDACTED]')
         .replace(/\bsk-[a-zA-Z0-9_\-.]+/gi, 'sk-[REDACTED]');
 
-      // Safe fallback on outage / truncated response / validation error:
-      // Return explicit review verdict and enforce risk-based fallback
       return {
         flagged: true,
         threatCategory: 'none',
@@ -450,6 +476,16 @@ ${sanitizedUntrustedContent}
         explanation: `Meta model outage / classification error: ${sanitizedErrMsg}`,
         confidence: 0.0,
         evidence: ['Classifier fallback due to error or incomplete response'],
+        tokenUsage: extractedUsage
+          ? {
+              promptTokens: extractedUsage.promptTokens,
+              completionTokens: extractedUsage.outputTokens,
+              totalTokens: extractedUsage.promptTokens + extractedUsage.outputTokens,
+              cachedPromptTokens: extractedUsage.cachedPromptTokens,
+              reasoningTokens: extractedUsage.reasoningTokens,
+            }
+          : undefined,
+        hasUnknownUsage: isProviderResponse && !extractedUsage,
         durationMs,
         mode: 'live',
         model: this.config.model,
