@@ -181,9 +181,17 @@ describe('MetaMuseSecurityAdapter', () => {
 
   it('exports valid CLASSIFICATION_JSON_SCHEMA matching Meta Responses API text.format format', () => {
     expect(CLASSIFICATION_JSON_SCHEMA.type).toBe('object');
+    expect(CLASSIFICATION_JSON_SCHEMA.additionalProperties).toBe(false);
     expect(CLASSIFICATION_JSON_SCHEMA.required).toContain('flagged');
     expect(CLASSIFICATION_JSON_SCHEMA.required).toContain('action');
     expect(CLASSIFICATION_JSON_SCHEMA.required).toContain('threatCategory');
+    expect(CLASSIFICATION_JSON_SCHEMA.required).toContain('confidence');
+    expect(CLASSIFICATION_JSON_SCHEMA.required).toContain('explanation');
+    expect(CLASSIFICATION_JSON_SCHEMA.required).toContain('evidence');
+    // In strict structured outputs (additionalProperties: false), every property must be in required
+    expect(CLASSIFICATION_JSON_SCHEMA.required.length).toBe(
+      Object.keys(CLASSIFICATION_JSON_SCHEMA.properties).length,
+    );
     expect(CLASSIFICATION_JSON_SCHEMA.properties.action.enum).toEqual(['allow', 'block', 'review']);
   });
 

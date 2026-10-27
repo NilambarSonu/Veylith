@@ -43,7 +43,7 @@ export const CLASSIFICATION_JSON_SCHEMA = {
       items: { type: 'string' },
     },
   },
-  required: ['flagged', 'threatCategory', 'action', 'confidence', 'explanation'],
+  required: ['flagged', 'threatCategory', 'action', 'confidence', 'explanation', 'evidence'],
   additionalProperties: false,
 } as const;
 
@@ -258,7 +258,8 @@ Respond ONLY with a valid JSON object matching this exact schema:
   "confidence": number,
   "explanation": "concise explanation",
   "evidence": ["string"]
-}`;
+}
+CRITICAL SCHEMA RULE: All properties are required. If content is benign or no suspicious evidence is present, set "evidence": [].`;
 
     const userPrompt = `<untrusted_content_${boundaryNonce}>
 ${sanitizedUntrustedContent}

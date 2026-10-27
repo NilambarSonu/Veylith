@@ -22,7 +22,7 @@ export const ModelClassificationSchema = z.object({
   action: z.enum(['allow', 'block', 'review']),
   confidence: z.number().min(0).max(1),
   explanation: z.string().min(1),
-  evidence: z.array(z.string()).optional(),
+  evidence: z.array(z.string()).default([]),
 });
 
 export type ModelClassification = z.infer<typeof ModelClassificationSchema>;
