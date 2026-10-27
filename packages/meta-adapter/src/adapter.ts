@@ -236,6 +236,8 @@ ${sanitizedUntrustedContent}
     const endpoint = `${this.config.apiBaseUrl.replace(/\/$/, '')}/responses`;
 
     try {
+      const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -244,7 +246,14 @@ ${sanitizedUntrustedContent}
         },
         body: JSON.stringify({
           model: this.config.model,
-          prompt: `${systemPrompt}\n\n${userPrompt}`,
+          input: fullPrompt,
+          prompt: fullPrompt, // Backward compatibility alias
+          reasoning: {
+            effort: this.config.reasoningEffort,
+          },
+          response_format: {
+            type: 'json_object',
+          },
           max_output_tokens: this.config.maxOutputTokens,
           temperature: 0.0,
         }),
@@ -258,16 +267,51 @@ ${sanitizedUntrustedContent}
       const rawJson = (await response.json()) as {
         text?: string;
         response?: string;
+        output?: Array<{
+          text?: string;
+          content?: Array<{ type?: string; text?: string }> | string;
+        }>;
         usage?: {
           prompt_tokens?: number;
           completion_tokens?: number;
           cached_tokens?: number;
+          reasoning_tokens?: number;
           prompt_tokens_details?: { cached_tokens?: number };
+          completion_tokens_details?: { reasoning_tokens?: number };
         };
       };
 
-      const rawText = rawJson.text ?? rawJson.response ?? JSON.stringify(rawJson);
-      // Extract json from markdown or raw text
+      // Extract model text from Meta Responses format (output[].content[].text) or standard fields
+      let rawText = '';
+      if (typeof rawJson.text === 'string' && rawJson.text.trim().length > 0) {
+        rawText = rawJson.text;
+      } else if (typeof rawJson.response === 'string' && rawJson.response.trim().length > 0) {
+        rawText = rawJson.response;
+      } else if (Array.isArray(rawJson.output) && rawJson.output.length > 0) {
+        for (const item of rawJson.output) {
+          if (typeof item === 'string') {
+            rawText += item;
+          } else if (item && typeof item === 'object') {
+            if (typeof item.text === 'string') {
+              rawText += item.text;
+            } else if (Array.isArray(item.content)) {
+              for (const part of item.content) {
+                if (part && typeof part.text === 'string') {
+                  rawText += part.text;
+                }
+              }
+            } else if (typeof item.content === 'string') {
+              rawText += item.content;
+            }
+          }
+        }
+      }
+
+      if (!rawText || rawText.trim().length === 0) {
+        rawText = JSON.stringify(rawJson);
+      }
+
+      // Extract json from markdown, raw text, or truncated candidate
       const cleanJson = this.extractJson(rawText);
       const parsed = ModelClassificationSchema.parse(cleanJson);
 
@@ -275,9 +319,19 @@ ${sanitizedUntrustedContent}
       const promptTokens = rawJson.usage?.prompt_tokens ?? Math.round(userPrompt.length / 4);
       const cachedPromptTokens =
         rawJson.usage?.cached_tokens ?? rawJson.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+      const reasoningTokens =
+        rawJson.usage?.reasoning_tokens ??
+        rawJson.usage?.completion_tokens_details?.reasoning_tokens ??
+        0;
       const completionTokens = rawJson.usage?.completion_tokens ?? Math.round(rawText.length / 4);
 
-      this.tracker.recordSuccess(promptTokens, completionTokens, durationMs, cachedPromptTokens);
+      this.tracker.recordSuccess(
+        promptTokens,
+        completionTokens,
+        durationMs,
+        cachedPromptTokens,
+        reasoningTokens,
+      );
 
       return {
         flagged: parsed.flagged,
@@ -301,12 +355,17 @@ ${sanitizedUntrustedContent}
       const durationMs = Math.round((performance.now() - start) * 100) / 100;
       const errMsg = err instanceof Error ? err.message : String(err);
 
+      // Safe error message: redact any API keys or tokens
+      const sanitizedErrMsg = errMsg
+        .replace(/(?:Bearer\s+)[a-zA-Z0-9_\-.]+/gi, 'Bearer [REDACTED]')
+        .replace(/\bsk-[a-zA-Z0-9_\-.]+/gi, 'sk-[REDACTED]');
+
       // Safe fallback on outage: flag as review, do not leak keys
       return {
         flagged: true,
         threatCategory: 'none',
         action: 'review',
-        explanation: `Meta model outage / classification error: ${errMsg}`,
+        explanation: `Meta model outage / classification error: ${sanitizedErrMsg}`,
         confidence: 0.0,
         evidence: ['Classifier fallback due to error'],
         durationMs,
@@ -318,19 +377,53 @@ ${sanitizedUntrustedContent}
     }
   }
 
-  private extractJson(text: string): unknown {
+  /** Robust JSON extractor supporting raw JSON, markdown code blocks, and truncated repair */
+  public extractJson(text: string): unknown {
     try {
       return JSON.parse(text);
     } catch {
+      // 1. Try markdown code blocks: ```json ... ```
       const match = /```(?:json)?\s*([\s\S]*?)\s*```/i.exec(text);
       if (match && match[1]) {
-        return JSON.parse(match[1]);
+        try {
+          return JSON.parse(match[1].trim());
+        } catch {
+          // fall through
+        }
       }
+
+      // 2. Try substring between first { and last }
       const firstBrace = text.indexOf('{');
       const lastBrace = text.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace !== -1) {
-        return JSON.parse(text.substring(firstBrace, lastBrace + 1));
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        try {
+          return JSON.parse(text.substring(firstBrace, lastBrace + 1));
+        } catch {
+          // fall through to truncated repair
+        }
       }
+
+      // 3. Attempt repair of truncated JSON outputs (e.g. unclosed strings or objects)
+      if (firstBrace !== -1) {
+        let candidate = text.substring(firstBrace).trim();
+        // Balance quotes
+        const quoteCount = (candidate.match(/(?<!\\)"/g) || []).length;
+        if (quoteCount % 2 !== 0) {
+          candidate += '"';
+        }
+        // Balance braces
+        const openBraces = (candidate.match(/\{/g) || []).length;
+        const closeBraces = (candidate.match(/\}/g) || []).length;
+        for (let i = 0; i < openBraces - closeBraces; i++) {
+          candidate += '}';
+        }
+        try {
+          return JSON.parse(candidate);
+        } catch {
+          // fall through
+        }
+      }
+
       throw new Error(`Unable to parse valid JSON classification from model output`);
     }
   }

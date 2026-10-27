@@ -20,6 +20,9 @@
     "test:integration": "vitest run tests/integration",
     "test:all": "vitest run",
     "smoke:meta": "tsx scripts/meta-smoke-test.ts",
+    "benchmark": "tsx scripts/benchmark-suite.ts",
+    "validate:live": "tsx scripts/live-validation-runner.ts",
+    "eval:holdout": "vitest run tests/integration/holdout-evaluation.test.ts",
     "dev": "echo 'See docs/development/local-setup.md for multi-process dev instructions'",
     "clean": "pnpm -r run clean && rm -rf node_modules"
   },

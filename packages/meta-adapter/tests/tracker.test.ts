@@ -55,6 +55,17 @@ describe('UsageTracker', () => {
     );
   });
 
+  it('records reasoning tokens and reports them in usage summary', () => {
+    // 500 prompt tokens, 300 completion tokens, 100 latency, 0 cached, 150 reasoning tokens
+    tracker.recordSuccess(500, 300, 100, 0, 150);
+
+    const report = tracker.getReport();
+    expect(report.promptTokens).toBe(500);
+    expect(report.completionTokens).toBe(300);
+    expect(report.reasoningTokens).toBe(150);
+    expect(report.totalTokens).toBe(800);
+  });
+
   it('enforces budget cap with official pricing', () => {
     // Inject enough tokens to exceed $0.10 cap
     // 100,000 standard tokens * $0.00000125 ($1.25/1M) = $0.125 > $0.10

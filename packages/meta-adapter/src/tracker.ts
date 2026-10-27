@@ -13,6 +13,7 @@ export interface UsageReport {
   readonly promptTokens: number;
   readonly cachedPromptTokens: number;
   readonly completionTokens: number;
+  readonly reasoningTokens: number;
   readonly totalTokens: number;
   readonly estimatedCostUsd: number;
   readonly failureCount: number;
@@ -26,13 +27,14 @@ export class UsageTracker {
   private promptTokens = 0;
   private cachedPromptTokens = 0;
   private completionTokens = 0;
+  private reasoningTokens = 0;
   private failureCount = 0;
   private totalLatencyMs = 0;
 
   // Official Pricing constants (USD per token)
   private readonly standardInputPriceUsd = 0.00000125; // $1.25 / 1M
   private readonly cachedInputPriceUsd = 0.00000015; // $0.15 / 1M
-  private readonly outputTokenPriceUsd = 0.00000425; // $4.25 / 1M
+  private readonly outputTokenPriceUsd = 0.00000425; // $4.25 / 1M (covers completion & reasoning tokens)
 
   constructor(
     private readonly maxRequestsPerRun: number = 10,
@@ -64,11 +66,13 @@ export class UsageTracker {
     completionTokens: number,
     latencyMs: number,
     cachedPromptTokens = 0,
+    reasoningTokens = 0,
   ): void {
     this.requestCount += 1;
     this.promptTokens += promptTokens;
     this.cachedPromptTokens += Math.min(cachedPromptTokens, promptTokens);
     this.completionTokens += completionTokens;
+    this.reasoningTokens += reasoningTokens;
     this.totalLatencyMs += latencyMs;
   }
 
@@ -101,6 +105,7 @@ export class UsageTracker {
       promptTokens: this.promptTokens,
       cachedPromptTokens: this.cachedPromptTokens,
       completionTokens: this.completionTokens,
+      reasoningTokens: this.reasoningTokens,
       totalTokens,
       estimatedCostUsd: Math.round(this.getEstimatedCostUsd() * 100000) / 100000,
       failureCount: this.failureCount,
@@ -116,6 +121,7 @@ export class UsageTracker {
     this.promptTokens = 0;
     this.cachedPromptTokens = 0;
     this.completionTokens = 0;
+    this.reasoningTokens = 0;
     this.failureCount = 0;
     this.totalLatencyMs = 0;
   }

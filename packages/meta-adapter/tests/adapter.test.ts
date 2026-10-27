@@ -116,4 +116,33 @@ describe('MetaMuseSecurityAdapter', () => {
     expect(roleResult.action).toBe('block');
     expect(roleResult.threatCategory).toBe('malicious_response');
   });
+
+  it('extracts JSON from markdown fences and repairs truncated JSON', () => {
+    const adapter = new MetaMuseSecurityAdapter({ mode: 'mock' });
+
+    // 1. Markdown code block
+    const markdown = 'Here is the verdict:\n```json\n{"flagged": false, "action": "allow"}\n```';
+    expect(adapter.extractJson(markdown)).toEqual({ flagged: false, action: 'allow' });
+
+    // 2. Truncated JSON missing closing brace
+    const truncated = '{"flagged": true, "action": "block"';
+    expect(adapter.extractJson(truncated)).toEqual({ flagged: true, action: 'block' });
+
+    // 3. Truncated JSON missing quote and brace
+    const truncatedQuote = '{"flagged": true, "action": "block';
+    expect(adapter.extractJson(truncatedQuote)).toEqual({ flagged: true, action: 'block' });
+  });
+
+  it('redacts sensitive credentials from live error messages', async () => {
+    const adapter = new MetaMuseSecurityAdapter({
+      mode: 'live',
+      apiKey: 'sk-test-secret-12345678901234567890',
+      apiBaseUrl: 'http://127.0.0.1:19998/v1',
+      timeoutMs: 300,
+    });
+
+    const result = await adapter.inspect('sample payload', 'call_arguments');
+    expect(result.explanation).not.toContain('sk-test-secret-12345678901234567890');
+    expect(result.explanation).toContain('Meta model outage');
+  });
 });

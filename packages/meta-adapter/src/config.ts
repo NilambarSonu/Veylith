@@ -18,6 +18,7 @@ export interface MetaAdapterConfig {
   readonly timeoutMs: number;
   readonly dailyBudgetUsd: number;
   readonly maxRequestsPerRun: number;
+  readonly reasoningEffort: 'low' | 'medium' | 'high';
 }
 
 export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdapterConfig {
@@ -44,6 +45,14 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
   const maxRequestsPerRun =
     overrides?.maxRequestsPerRun ?? parseInt(process.env['META_MAX_REQUESTS_PER_RUN'] ?? '10', 10);
 
+  const reasoningEffortRaw =
+    overrides?.reasoningEffort ?? process.env['META_REASONING_EFFORT'] ?? 'low';
+  const reasoningEffort: 'low' | 'medium' | 'high' = ['low', 'medium', 'high'].includes(
+    reasoningEffortRaw,
+  )
+    ? (reasoningEffortRaw as 'low' | 'medium' | 'high')
+    : 'low';
+
   // If live mode is requested, an API key is required
   if (mode === 'live' && (!apiKey || apiKey.trim().length === 0)) {
     throw new Error(
@@ -60,5 +69,6 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
     timeoutMs: isNaN(timeoutMs) ? 5000 : timeoutMs,
     dailyBudgetUsd: isNaN(dailyBudgetUsd) ? 0.25 : dailyBudgetUsd,
     maxRequestsPerRun: isNaN(maxRequestsPerRun) ? 10 : maxRequestsPerRun,
+    reasoningEffort,
   };
 }
