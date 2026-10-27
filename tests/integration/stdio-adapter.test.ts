@@ -134,8 +134,26 @@ describe('Veylith Stdio Adapter — Gateway Bridge Mode', () => {
     );
 
     let stdoutData = '';
-    adapterProcess.stdout.on('data', (d) => {
-      stdoutData += d.toString();
+    const responseLine = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('Timed out waiting for stdio response line')),
+        15000,
+      );
+      adapterProcess.stdout.on('data', (d) => {
+        stdoutData += d.toString();
+        if (stdoutData.includes('\n')) {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+      adapterProcess.once('error', (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      adapterProcess.once('exit', (code) => {
+        clearTimeout(timer);
+        reject(new Error(`Adapter exited before response: ${code}`));
+      });
     });
 
     // Send standard MCP initialize request over stdin
@@ -153,19 +171,37 @@ describe('Veylith Stdio Adapter — Gateway Bridge Mode', () => {
 
     adapterProcess.stdin.write(initReq);
 
-    // Wait for response line
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      // Wait for the observed response, independent of subprocess startup scheduling.
+      await responseLine;
 
-    // Every line on stdout must be strictly parseable JSON
-    const lines = stdoutData.trim().split('\n').filter(Boolean);
-    expect(lines.length).toBeGreaterThan(0);
-    for (const line of lines) {
-      expect(() => JSON.parse(line)).not.toThrow();
-      const msg = JSON.parse(line);
-      expect(msg.jsonrpc).toBe('2.0');
+      // Every line on stdout must be strictly parseable JSON
+      const lines = stdoutData.trim().split('\n').filter(Boolean);
+      expect(lines.length).toBeGreaterThan(0);
+      for (const line of lines) {
+        expect(() => JSON.parse(line)).not.toThrow();
+        const msg = JSON.parse(line);
+        expect(msg.jsonrpc).toBe('2.0');
+      }
+    } finally {
+      const exited = new Promise<void>((resolve) => {
+        if (
+          adapterProcess.exitCode !== null ||
+          adapterProcess.signalCode !== null ||
+          !adapterProcess.pid
+        ) {
+          resolve();
+          return;
+        }
+        const timer = setTimeout(() => adapterProcess.kill('SIGKILL'), 1000);
+        adapterProcess.once('exit', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+      adapterProcess.kill('SIGTERM');
+      await exited;
     }
-
-    adapterProcess.kill('SIGTERM');
   });
 
   it('discovers clean tools and filters out poisoned tool descriptions (Stage 1)', async () => {
