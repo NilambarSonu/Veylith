@@ -86,3 +86,6 @@ local-logs/
 # Reproducible local adversarial runs; reviewed snapshots live under security-lab/evidence/
 /security-lab/results/
 /security-lab/live-results/
+
+# Phase 2F runtime measurements; reviewed snapshots are committed under evidence/
+/security-lab/phase-2f/after/

@@ -131,6 +131,9 @@ importers:
 
   packages/policy-engine:
     dependencies:
+      '@modelcontextprotocol/server':
+        specifier: ^2.4.0
+        version: 2.4.0
       '@veylith/core':
         specifier: workspace:*
         version: link:../core

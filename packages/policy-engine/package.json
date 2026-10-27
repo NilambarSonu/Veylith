@@ -8,7 +8,8 @@
   },
   "dependencies": {
     "@veylith/core": "workspace:*",
-    "@veylith/meta-adapter": "workspace:*"
+    "@veylith/meta-adapter": "workspace:*",
+    "@modelcontextprotocol/server": "^2.4.0"
   },
   "scripts": {
     "build": "tsc --build",

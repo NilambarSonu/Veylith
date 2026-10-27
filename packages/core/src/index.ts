@@ -15,6 +15,7 @@ export type {
 export type { GatewayRequest, GatewayResponse, RequestMeta } from './types/index.js';
 export { VeylithError, PolicyBlockedError, UpstreamError, ConfigError } from './errors/index.js';
 export type {
+  RoutingTrace,
   InspectionStage,
   ThreatCategory,
   ToolCapability,

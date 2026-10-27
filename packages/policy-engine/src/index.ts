@@ -9,6 +9,7 @@ export { InspectionCache } from './cache/inspection-cache.js';
 export {
   ToolCapabilityRegistry,
   computeToolDefinitionHash,
+  toolMetadataText,
   type TrustedToolBinding,
   type ToolDefinitionSnapshot,
   type ToolDefinitionInput,
@@ -26,6 +27,7 @@ export {
   GENESIS_HASH,
   canonicalJson,
   computeEventHash,
+  type AuditCheckpoint,
   type AuditLogChainOptions,
   type CreateAuditRecordInput,
   type ChainVerificationResult,
@@ -41,3 +43,7 @@ export {
   type PromptDiscoveryOutcome,
   type PromptMessagesOutcome,
 } from './engine/index.js';
+
+export { BoundaryRouter, collectClientArgumentText } from './routing/boundary.js';
+
+export { toolInputContract } from './contracts/tool-schema.js';

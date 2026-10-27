@@ -33,9 +33,13 @@ import type {
 } from '@veylith/core';
 import type { MetaAdapter } from '@veylith/meta-adapter';
 import { DeterministicRuleSet } from '../rules/deterministic.js';
-import { HeuristicRiskScreener } from '../screener/heuristic.js';
+import { BoundaryInspector } from '../routing/inspector.js';
 import { InspectionCache } from '../cache/inspection-cache.js';
-import { ToolCapabilityRegistry, type TrustedToolBinding } from '../capabilities/registry.js';
+import {
+  ToolCapabilityRegistry,
+  toolMetadataText,
+  type TrustedToolBinding,
+} from '../capabilities/registry.js';
 import { ClientSessionManager } from '../sessions/manager.js';
 import { AuditLogChain } from '../audit/chain.js';
 
@@ -116,7 +120,7 @@ export interface PromptMessagesOutcome {
 
 export class SecurityInspectionEngine {
   private readonly deterministicRules = new DeterministicRuleSet();
-  private readonly screener = new HeuristicRiskScreener();
+  public readonly boundary: BoundaryInspector;
   private readonly cache: InspectionCache;
   private readonly policyRules: readonly PolicyRule[];
   private readonly metaAdapter: MetaAdapter;
@@ -136,18 +140,38 @@ export class SecurityInspectionEngine {
   ) {
     this.policyRules = policyRules;
     this.metaAdapter = metaAdapter;
-    this.policyVersion = options?.policyVersion ?? 'v1.0.0';
-    this.failClosed = options?.failClosed ?? false;
+    this.policyVersion = options?.policyVersion ?? 'v2f.1';
+    this.failClosed = options?.failClosed ?? true;
     this.defaultDecision = options?.defaultDecision ?? 'allow';
     this.cache = new InspectionCache(500, 60000);
     this.capabilityRegistry =
       options?.capabilityRegistry ?? new ToolCapabilityRegistry(options?.capabilityBindings ?? []);
     this.sessionManager = options?.sessionManager ?? new ClientSessionManager();
+    this.boundary = new BoundaryInspector(
+      metaAdapter,
+      this.capabilityRegistry,
+      this.sessionManager,
+      this.policyVersion,
+      this.failClosed,
+      this.defaultDecision,
+    );
     this.auditChain = options?.auditChain ?? new AuditLogChain();
     this.maxResourceContentBytes = options?.maxResourceContentBytes ?? 5 * 1024 * 1024;
     this.allowBinaryResources = options?.allowBinaryResources ?? false;
   }
 
+  getRoutingMetrics() {
+    return this.boundary.stats();
+  }
+  /** Only trusted operator code may pin exact content; upstream hints and labels never approve it. */
+  approveTrustedContent(
+    serverId: string,
+    stage: InspectionContext['stage'],
+    target: string,
+    content: string,
+  ) {
+    this.boundary.router.approve(serverId, stage, target, content);
+  }
   /**
    * Records an audit event in the tamper-evident hash chain.
    */
@@ -179,6 +203,14 @@ export class SecurityInspectionEngine {
       policyVersion: this.policyVersion,
       modelId: res.modelId,
       latencyMs: res.evaluationDurationMs,
+      routing: res.routing ?? {
+        decision: res.action === 'block' ? 'deterministically_blocked' : 'verified_safe_fast_path',
+        reason: 'authorization-capability-or-explicit-policy',
+        origin: res.stage === 'call_arguments' ? 'client' : 'upstream',
+        capability: 'UNKNOWN',
+        inputBytes: 0,
+        contextIncluded: false,
+      },
       tokenUsage: res.tokenUsage,
     });
   }
@@ -197,6 +229,7 @@ export class SecurityInspectionEngine {
           readonly sessionId?: string;
         },
   ): Promise<DiscoveryInspectionOutcome> {
+    const routingRequestId = randomUUID();
     const serverId = typeof clientOrContext === 'object' ? clientOrContext.serverId : undefined;
     const clientIdentity =
       typeof clientOrContext === 'string' ? clientOrContext : clientOrContext?.clientIdentity;
@@ -300,7 +333,9 @@ export class SecurityInspectionEngine {
               location: 'tool_metadata',
             },
           ],
-          explanation: `Tool definition mutated: Description or schema for tool '${tool.name}' was modified after initial registration. Quarantined to prevent dynamic prompt injection or unauthorized capability expansion.`,
+          explanation: trackResult.capacityExceeded
+            ? 'Tool definition tracking capacity reached; new tool quarantined'
+            : `Tool definition mutated: Description or schema for tool '${tool.name}' was modified after initial registration. Quarantined to prevent dynamic prompt injection or unauthorized capability expansion.`,
           evaluationDurationMs: 0.1,
           origin: 'deterministic',
           isConfirmedViolation: true,
@@ -316,12 +351,19 @@ export class SecurityInspectionEngine {
       }
 
       // Tier 1 & 2: Screen description and schema
-      const inspectTarget = `${tool.name} ${tool.description ?? ''} ${JSON.stringify(tool.inputSchema ?? {})}`;
-      const screenVerdict = this.screener.screen(inspectTarget, 'discovery');
+      const inspectTarget = toolMetadataText(tool);
+      if (serverId && this.capabilityRegistry.isPinnedDefinition(serverId, tool))
+        this.approveTrustedContent(serverId, 'discovery', tool.name, inspectTarget);
+      const screenVerdict = this.boundary.screen(inspectTarget, 'discovery', tool.name, {
+        serverId,
+        clientIdentity,
+        sessionId,
+      });
 
       if (screenVerdict.type === 'hard_violation') {
         const res: SecurityInspectionResult = {
           id: randomUUID(),
+          routing: screenVerdict.routing,
           stage: 'discovery',
           action: 'block',
           threatCategory: screenVerdict.match.threatCategory,
@@ -354,6 +396,7 @@ export class SecurityInspectionEngine {
         cleanTools.push(tool);
         const res: SecurityInspectionResult = {
           id: randomUUID(),
+          routing: screenVerdict.routing,
           stage: 'discovery',
           action: 'allow',
           threatCategory: 'none',
@@ -370,7 +413,7 @@ export class SecurityInspectionEngine {
 
       // Ambiguous -> Tier 3: Meta Muse Semantic Inspection
       const cacheKey = this.cache.generateKey({
-        payload: inspectTarget,
+        payload: screenVerdict.payload,
         stage: 'discovery',
         policyVersion: this.policyVersion,
         modelVersion: `${this.metaAdapter.mode}:${this.metaAdapter.model}`,
@@ -383,6 +426,7 @@ export class SecurityInspectionEngine {
       const cached = this.cache.get(cacheKey);
 
       if (cached) {
+        this.boundary.cacheHit();
         results.push(cached);
         if (cached.action === 'block') {
           blockedTools.push({
@@ -397,9 +441,15 @@ export class SecurityInspectionEngine {
         continue;
       }
 
-      const modelResult = await this.metaAdapter.inspect(inspectTarget, 'discovery', {
-        toolName: tool.name,
-      });
+      const modelResult = await this.boundary.infer(
+        screenVerdict.payload,
+        'discovery',
+        screenVerdict.routing,
+        routingRequestId,
+        {
+          toolName: tool.name,
+        },
+      );
 
       let finalAction: PolicyAction = modelResult.flagged
         ? modelResult.action
@@ -418,6 +468,7 @@ export class SecurityInspectionEngine {
 
       const res: SecurityInspectionResult = {
         id: randomUUID(),
+        routing: this.boundary.effectiveRoute(screenVerdict.routing, modelResult),
         stage: 'discovery',
         action: finalAction,
         threatCategory:
@@ -430,7 +481,7 @@ export class SecurityInspectionEngine {
           location: 'tool_metadata',
         })),
         explanation: finalExplanation,
-        modelId: this.metaAdapter.model,
+        modelId: modelResult.mode === 'disabled' ? undefined : this.metaAdapter.model,
         evaluationDurationMs: modelResult.durationMs,
         tokenUsage: modelResult.tokenUsage,
         origin:
@@ -443,7 +494,7 @@ export class SecurityInspectionEngine {
         isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
       };
 
-      this.cache.set(cacheKey, res);
+      if (modelResult.action !== 'review') this.cache.set(cacheKey, res);
       results.push(res);
       this.recordAudit(res, 'tools/list', tool.name, { serverId, clientIdentity, sessionId });
 
@@ -572,16 +623,12 @@ export class SecurityInspectionEngine {
     const capability = this.capabilityRegistry.resolveCapability(ctx.serverId, toolName);
 
     // Tier 1 & 2: Screen arguments (capability-aware)
-    const screenVerdict = this.screener.screen(args, {
-      stage: 'call_arguments',
-      capability,
-      toolName,
-      serverId: ctx.serverId,
-    });
+    const screenVerdict = this.boundary.screen(args, 'call_arguments', toolName, ctx, capability);
 
     if (screenVerdict.type === 'hard_violation') {
       const res: SecurityInspectionResult = {
         id: randomUUID(),
+        routing: screenVerdict.routing,
         stage: 'call_arguments',
         action: 'block',
         threatCategory: screenVerdict.match.threatCategory,
@@ -606,6 +653,7 @@ export class SecurityInspectionEngine {
     if (screenVerdict.type === 'clean') {
       const res: SecurityInspectionResult = {
         id: randomUUID(),
+        routing: screenVerdict.routing,
         stage: 'call_arguments',
         action: 'allow',
         threatCategory: 'none',
@@ -620,7 +668,7 @@ export class SecurityInspectionEngine {
     }
 
     // Tier 3: Ambiguous arguments -> Semantic model check
-    const serializedArgs = JSON.stringify(args);
+    const serializedArgs = screenVerdict.payload;
     const cacheKey = this.cache.generateKey({
       payload: serializedArgs,
       stage: 'call_arguments',
@@ -634,13 +682,20 @@ export class SecurityInspectionEngine {
     });
     const cached = this.cache.get(cacheKey);
     if (cached) {
+      this.boundary.cacheHit();
       this.recordAudit(cached, 'tools/call', toolName, ctx);
       return cached;
     }
 
-    const modelResult = await this.metaAdapter.inspect(serializedArgs, 'call_arguments', {
-      toolName,
-    });
+    const modelResult = await this.boundary.infer(
+      serializedArgs,
+      'call_arguments',
+      screenVerdict.routing,
+      ctx.requestId,
+      {
+        toolName,
+      },
+    );
 
     let finalAction: PolicyAction = modelResult.flagged ? modelResult.action : this.defaultDecision;
     let finalExplanation = modelResult.explanation;
@@ -657,6 +712,7 @@ export class SecurityInspectionEngine {
 
     const res: SecurityInspectionResult = {
       id: randomUUID(),
+      routing: this.boundary.effectiveRoute(screenVerdict.routing, modelResult),
       stage: 'call_arguments',
       action: finalAction,
       threatCategory:
@@ -669,7 +725,7 @@ export class SecurityInspectionEngine {
         location: 'args',
       })),
       explanation: finalExplanation,
-      modelId: this.metaAdapter.model,
+      modelId: modelResult.mode === 'disabled' ? undefined : this.metaAdapter.model,
       evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
       tokenUsage: modelResult.tokenUsage,
       origin:
@@ -682,7 +738,7 @@ export class SecurityInspectionEngine {
       isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
     };
 
-    this.cache.set(cacheKey, res);
+    if (modelResult.action !== 'review') this.cache.set(cacheKey, res);
     this.recordAudit(res, 'tools/call', toolName, ctx);
     return res;
   }
@@ -696,157 +752,29 @@ export class SecurityInspectionEngine {
     toolName: string,
     content: readonly { readonly type: string; readonly text?: string }[],
   ): Promise<ResponseInspectionOutcome> {
-    const start = performance.now();
-
-    const textPayload = content
+    const pieces = content
       .filter((c) => c.type === 'text' && typeof c.text === 'string')
-      .map((c) => c.text!)
-      .join('\n');
-
-    // Tier 1 & 2: Screen response
-    const screenVerdict = this.screener.screen(textPayload, 'call_response');
-
-    if (screenVerdict.type === 'hard_violation') {
-      const result: SecurityInspectionResult = {
-        id: randomUUID(),
-        stage: 'call_response',
-        action: 'block',
-        threatCategory: screenVerdict.match.threatCategory,
-        evidence: [
-          {
-            type: 'deterministic_rule',
-            matchedPattern: screenVerdict.match.matchedPattern,
-            snippet: screenVerdict.match.snippet,
-            location: screenVerdict.match.location || 'response_body',
-          },
-        ],
-        explanation: `Malicious response intercepted: ${screenVerdict.match.description}`,
-        ruleId: screenVerdict.match.ruleId,
-        evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
-        origin: 'deterministic',
-        isConfirmedViolation: true,
-      };
-
-      this.recordAudit(result, 'tools/call', toolName, ctx);
-
-      const sanitizedContent = [
-        {
-          type: 'text',
-          text: `[Veylith Security Notice]: Tool response from '${toolName}' contained potential prompt injection instructions and was redacted to protect the agent reasoning loop. Reason: ${screenVerdict.match.description}`,
-        },
-      ];
-
-      return { result, sanitizedContent, isRedacted: true };
-    }
-
-    if (screenVerdict.type === 'clean') {
-      const result: SecurityInspectionResult = {
-        id: randomUUID(),
-        stage: 'call_response',
-        action: 'allow',
-        threatCategory: 'none',
-        evidence: [],
-        explanation: 'Response content screened clean by deterministic rules',
-        evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
-        origin: 'deterministic',
-        isConfirmedViolation: false,
-      };
-      this.recordAudit(result, 'tools/call', toolName, ctx);
-      return { result, sanitizedContent: content, isRedacted: false };
-    }
-
-    // Tier 3: Ambiguous response -> Semantic model check
-    const cacheKey = this.cache.generateKey({
-      payload: textPayload,
-      stage: 'call_response',
-      policyVersion: this.policyVersion,
-      modelVersion: `${this.metaAdapter.mode}:${this.metaAdapter.model}`,
-      baselineRevision: this.capabilityRegistry.baselineRevision,
-      clientId: ctx.clientIdentity,
-      serverId: ctx.serverId,
-      sessionId: ctx.sessionId,
+      .map((c) => c.text!);
+    const result = await this.boundary.classify(
+      ctx,
       toolName,
-    });
-    const cached = this.cache.get(cacheKey);
-
-    if (cached) {
-      this.recordAudit(cached, 'tools/call', toolName, ctx);
-      if (cached.action === 'block') {
-        return {
-          result: cached,
-          sanitizedContent: [
+      pieces,
+      content.every((c) => c.type === 'text' && typeof c.text === 'string'),
+    );
+    this.recordAudit(result, 'tools/call', toolName, ctx);
+    const isRedacted = result.action === 'block' || (result.action === 'review' && this.failClosed);
+    return {
+      result,
+      isRedacted,
+      sanitizedContent: isRedacted
+        ? [
             {
               type: 'text',
-              text: `[Veylith Security Notice]: Tool response from '${toolName}' contained potential prompt injection instructions and was redacted. Reason: ${cached.explanation}`,
+              text: `[Veylith Security Notice]: Tool response from '${toolName}' quarantined. Reason: ${result.explanation}`,
             },
-          ],
-          isRedacted: true,
-        };
-      }
-      return { result: cached, sanitizedContent: content, isRedacted: false };
-    }
-
-    const modelResult = await this.metaAdapter.inspect(textPayload, 'call_response', {
-      toolName,
-    });
-
-    let finalAction: PolicyAction = modelResult.flagged ? modelResult.action : this.defaultDecision;
-    let finalExplanation = modelResult.explanation;
-
-    // Fail-closed risk-based fallback: High-risk unverified operations MUST NOT pass when AI provider fails
-    if (
-      modelResult.action === 'review' &&
-      screenVerdict.type === 'ambiguous' &&
-      screenVerdict.riskLevel === 'high'
-    ) {
-      finalAction = 'block';
-      finalExplanation = `High-risk response quarantined: Security classifier unavailable while response exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`;
-    }
-
-    const result: SecurityInspectionResult = {
-      id: randomUUID(),
-      stage: 'call_response',
-      action: finalAction,
-      threatCategory:
-        finalAction === 'block' && modelResult.threatCategory === 'none'
-          ? 'malicious_response'
-          : modelResult.threatCategory,
-      evidence: modelResult.evidence.map((ev) => ({
-        type: 'semantic_inference',
-        snippet: ev,
-        location: 'response_body',
-      })),
-      explanation: finalExplanation,
-      modelId: this.metaAdapter.model,
-      evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
-      tokenUsage: modelResult.tokenUsage,
-      origin:
-        modelResult.mode === 'mock'
-          ? 'mock'
-          : modelResult.mode === 'disabled'
-            ? 'deterministic'
-            : 'live',
-      confidence: modelResult.confidence,
-      isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
+          ]
+        : content,
     };
-
-    this.cache.set(cacheKey, result);
-    this.recordAudit(result, 'tools/call', toolName, ctx);
-
-    if (finalAction === 'block' || (finalAction === 'review' && this.failClosed)) {
-      return {
-        result,
-        sanitizedContent: [
-          {
-            type: 'text',
-            text: `[Veylith Security Notice]: Tool response from '${toolName}' was intercepted and redacted. Reason: ${finalExplanation}`,
-          },
-        ],
-        isRedacted: true,
-      };
-    }
-
-    return { result, sanitizedContent: content, isRedacted: false };
   }
 
   /**
@@ -928,11 +856,12 @@ export class SecurityInspectionEngine {
       }
 
       const inspectTarget = `${res.name} ${res.description ?? ''} ${res.uri}`;
-      const screenVerdict = this.screener.screen(inspectTarget, 'resource_discovery');
+      const screenVerdict = this.boundary.screen(inspectTarget, 'resource_discovery', res.uri, ctx);
 
       if (screenVerdict.type === 'hard_violation') {
         const result: SecurityInspectionResult = {
           id: randomUUID(),
+          routing: screenVerdict.routing,
           stage: 'resource_discovery',
           action: 'block',
           threatCategory: screenVerdict.match.threatCategory,
@@ -961,9 +890,38 @@ export class SecurityInspectionEngine {
         continue;
       }
 
+      if (screenVerdict.type === 'ambiguous') {
+        const review = await this.boundary.classify(
+          {
+            requestId: randomUUID(),
+            stage: 'resource_discovery',
+            method: 'resources/list',
+            timestamp: new Date().toISOString(),
+            ...ctx,
+          },
+          res.uri,
+          [inspectTarget],
+          true,
+          screenVerdict,
+        );
+        results.push(review);
+        this.recordAudit(review, 'resources/list', res.uri, ctx);
+        if (review.action === 'block' || (review.action === 'review' && this.failClosed)) {
+          blockedResources.push({
+            uri: res.uri,
+            name: res.name,
+            reason: review.explanation,
+            threatCategory: review.threatCategory,
+          });
+          continue;
+        }
+        cleanResources.push(res);
+        continue;
+      }
       cleanResources.push(res);
       const allowResult: SecurityInspectionResult = {
         id: randomUUID(),
+        routing: screenVerdict.routing,
         stage: 'resource_discovery',
         action: 'allow',
         threatCategory: 'none',
@@ -980,11 +938,17 @@ export class SecurityInspectionEngine {
     // Inspect templates
     for (const tpl of templates) {
       const inspectTarget = `${tpl.name} ${tpl.description ?? ''} ${tpl.uriTemplate}`;
-      const screenVerdict = this.screener.screen(inspectTarget, 'resource_discovery');
+      const screenVerdict = this.boundary.screen(
+        inspectTarget,
+        'resource_discovery',
+        tpl.uriTemplate,
+        ctx,
+      );
 
       if (screenVerdict.type === 'hard_violation') {
         const result: SecurityInspectionResult = {
           id: randomUUID(),
+          routing: screenVerdict.routing,
           stage: 'resource_discovery',
           action: 'block',
           threatCategory: screenVerdict.match.threatCategory,
@@ -1007,6 +971,28 @@ export class SecurityInspectionEngine {
         continue;
       }
 
+      if (screenVerdict.type === 'ambiguous') {
+        const review = await this.boundary.classify(
+          {
+            requestId: randomUUID(),
+            stage: 'resource_discovery',
+            method: 'resources/list',
+            timestamp: new Date().toISOString(),
+            ...ctx,
+          },
+          tpl.uriTemplate,
+          [inspectTarget],
+          true,
+          screenVerdict,
+        );
+        results.push(review);
+        this.recordAudit(review, 'resources/list', tpl.uriTemplate, ctx);
+        if (review.action === 'block' || (review.action === 'review' && this.failClosed)) {
+          continue;
+        }
+        cleanTemplates.push(tpl);
+        continue;
+      }
       cleanTemplates.push(tpl);
     }
 
@@ -1023,7 +1009,6 @@ export class SecurityInspectionEngine {
     items: readonly ResourceContentItem[],
   ): Promise<ResourceContentOutcome> {
     const start = performance.now();
-    const results: SecurityInspectionResult[] = [];
 
     // Session validation
     if (ctx.sessionId) {
@@ -1118,195 +1103,91 @@ export class SecurityInspectionEngine {
       };
     }
 
-    const sanitizedItems: ResourceContentItem[] = [];
-    let isRedacted = false;
-
-    for (const item of items) {
-      // Binary content policy: explicit policy-based handling
-      if (item.blob !== undefined) {
-        if (!this.allowBinaryResources) {
-          const res: SecurityInspectionResult = {
-            id: randomUUID(),
-            stage: 'resource_content',
-            action: 'block',
-            threatCategory: 'uninspected_binary',
-            evidence: [
-              {
-                type: 'uninspected_binary',
-                snippet: `MIME type: ${item.mimeType ?? 'application/octet-stream'}`,
-                location: 'blob',
-              },
-            ],
-            explanation: `Uninspected binary payload rejected: Gateway policy disallows uninspected binary resource contents ('${uri}'). Explicit binary inspection policy required.`,
-            evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
-            origin: 'deterministic',
-            isConfirmedViolation: true,
-          };
-          this.recordAudit(res, 'resources/read', uri, ctx);
-          return {
-            sanitizedItems: [],
-            isRedacted: false,
-            isBlocked: true,
-            blockReason: res.explanation,
-            threatCategory: 'uninspected_binary',
-            results: [res],
-          };
-        } else {
-          // Explicitly permitted binary payload
-          sanitizedItems.push(item);
-          continue;
-        }
-      }
-
-      // Text content inspection
-      const textContent = item.text ?? '';
-      const screenVerdict = this.screener.screen(textContent, 'resource_content');
-
-      if (screenVerdict.type === 'hard_violation') {
-        const res: SecurityInspectionResult = {
-          id: randomUUID(),
-          stage: 'resource_content',
-          action: 'block',
-          threatCategory: screenVerdict.match.threatCategory,
-          evidence: [
-            {
-              type: 'deterministic_rule',
-              matchedPattern: screenVerdict.match.matchedPattern,
-              snippet: screenVerdict.match.snippet,
-              location: 'resource_text',
-            },
-          ],
-          explanation: `Malicious resource content intercepted: ${screenVerdict.match.description}`,
-          ruleId: screenVerdict.match.ruleId,
-          evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
-          origin: 'deterministic',
-          isConfirmedViolation: true,
-        };
-        results.push(res);
-        this.recordAudit(res, 'resources/read', uri, ctx);
-
-        // Redact resource text
-        sanitizedItems.push({
-          ...item,
-          text: `[Veylith Security Notice]: Resource content from '${uri}' contained active prompt injection instructions and was redacted to protect the agent reasoning loop. Reason: ${screenVerdict.match.description}`,
-        });
-        isRedacted = true;
-        continue;
-      }
-
-      if (screenVerdict.type === 'clean') {
-        sanitizedItems.push(item);
-        const res: SecurityInspectionResult = {
-          id: randomUUID(),
-          stage: 'resource_content',
-          action: 'allow',
-          threatCategory: 'none',
-          evidence: [],
-          explanation: 'Resource content verified clean',
-          evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
-          origin: 'deterministic',
-          isConfirmedViolation: false,
-        };
-        results.push(res);
-        this.recordAudit(res, 'resources/read', uri, ctx);
-        continue;
-      }
-
-      // Ambiguous content -> Semantic model check
-      const cacheKey = this.cache.generateKey({
-        payload: textContent,
-        stage: 'resource_content',
-        policyVersion: this.policyVersion,
-        modelVersion: `${this.metaAdapter.mode}:${this.metaAdapter.model}`,
-        baselineRevision: this.capabilityRegistry.baselineRevision,
-        clientId: ctx.clientIdentity,
-        serverId: ctx.serverId,
-        sessionId: ctx.sessionId,
-        toolName: uri,
-      });
-      const cached = this.cache.get(cacheKey);
-
-      if (cached) {
-        results.push(cached);
-        this.recordAudit(cached, 'resources/read', uri, ctx);
-        if (cached.action === 'block') {
-          sanitizedItems.push({
-            ...item,
-            text: `[Veylith Security Notice]: Resource content from '${uri}' was quarantined. Reason: ${cached.explanation}`,
-          });
-          isRedacted = true;
-        } else {
-          sanitizedItems.push(item);
-        }
-        continue;
-      }
-
-      const modelResult = await this.metaAdapter.inspect(textContent, 'call_response', {
-        resourceUri: uri,
-      });
-
-      let finalAction: PolicyAction = modelResult.flagged
-        ? modelResult.action
-        : this.defaultDecision;
-      let finalExplanation = modelResult.explanation;
-
-      if (
-        modelResult.action === 'review' &&
-        screenVerdict.type === 'ambiguous' &&
-        screenVerdict.riskLevel === 'high'
-      ) {
-        finalAction = 'block';
-        finalExplanation = `High-risk resource quarantined: Security classifier unavailable while content exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`;
-      }
-
+    if (items.some((item) => item.blob !== undefined) && !this.allowBinaryResources) {
       const res: SecurityInspectionResult = {
         id: randomUUID(),
         stage: 'resource_content',
-        action: finalAction,
-        threatCategory:
-          finalAction === 'block' && modelResult.threatCategory === 'none'
-            ? 'resource_poisoning'
-            : modelResult.threatCategory,
-        evidence: modelResult.evidence.map((ev) => ({
-          type: 'semantic_inference',
-          snippet: ev,
-          location: 'resource_text',
-        })),
-        explanation: finalExplanation,
-        modelId: this.metaAdapter.model,
-        evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
-        tokenUsage: modelResult.tokenUsage,
-        origin:
-          modelResult.mode === 'mock'
-            ? 'mock'
-            : modelResult.mode === 'disabled'
-              ? 'deterministic'
-              : 'live',
-        confidence: modelResult.confidence,
-        isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
+        action: 'block',
+        threatCategory: 'uninspected_binary',
+        evidence: [],
+        explanation:
+          'Uninspected binary payload rejected: explicit binary inspection policy required',
+        evaluationDurationMs: performance.now() - start,
+        origin: 'deterministic',
+        isConfirmedViolation: true,
+        routing: {
+          decision: 'unknown_or_uninspectable',
+          reason: 'uninspected-binary',
+          origin: 'upstream',
+          capability: 'UNKNOWN',
+          inputBytes: 0,
+          contextIncluded: false,
+        },
       };
-
-      this.cache.set(cacheKey, res);
-      results.push(res);
       this.recordAudit(res, 'resources/read', uri, ctx);
-
-      if (finalAction === 'block' || (finalAction === 'review' && this.failClosed)) {
-        sanitizedItems.push({
-          ...item,
-          text: `[Veylith Security Notice]: Resource content from '${uri}' was quarantined. Reason: ${finalExplanation}`,
-        });
-        isRedacted = true;
-      } else {
-        sanitizedItems.push(item);
-      }
+      return {
+        sanitizedItems: [],
+        isRedacted: false,
+        isBlocked: true,
+        blockReason: res.explanation,
+        threatCategory: 'uninspected_binary',
+        results: [res],
+      };
     }
-
+    const textItems = items.filter((item) => item.blob === undefined);
+    const pieces = textItems.map((item) => item.text ?? '');
+    if (!textItems.length) {
+      const routed = this.boundary.screen('', ctx.stage, uri, ctx, undefined, [], false);
+      const result: SecurityInspectionResult = {
+        id: randomUUID(),
+        stage: ctx.stage,
+        action: 'allow',
+        threatCategory: 'uninspected_binary',
+        origin: 'deterministic',
+        isConfirmedViolation: false,
+        evidence: [],
+        explanation: 'Explicit binary allow policy: content remains uninspectable',
+        evaluationDurationMs: performance.now() - start,
+        routing: { ...routed.routing, reason: 'explicit-uninspected-binary-opt-out' },
+      };
+      this.recordAudit(result, 'resources/read', uri, ctx);
+      return {
+        sanitizedItems: items,
+        isRedacted: false,
+        isBlocked: false,
+        threatCategory: 'none',
+        results: [result],
+      };
+    }
+    const result = await this.boundary.classify(
+      ctx,
+      uri,
+      pieces,
+      textItems.every(
+        (item) =>
+          typeof item.text === 'string' &&
+          (!item.mimeType ||
+            item.mimeType.startsWith('text/') ||
+            item.mimeType === 'application/json'),
+      ),
+    );
+    this.recordAudit(result, 'resources/read', uri, ctx);
+    const isRedacted = result.action === 'block' || (result.action === 'review' && this.failClosed);
     return {
-      sanitizedItems,
+      sanitizedItems: isRedacted
+        ? items.map((item) =>
+            item.blob !== undefined
+              ? item
+              : {
+                  ...item,
+                  text: `[Veylith Security Notice]: Resource content from '${uri}' quarantined. Reason: ${result.explanation}`,
+                },
+          )
+        : items,
       isRedacted,
       isBlocked: false,
       threatCategory: isRedacted ? 'resource_poisoning' : 'none',
-      results,
+      results: [result],
     };
   }
 
@@ -1380,11 +1261,17 @@ export class SecurityInspectionEngine {
       }
 
       const inspectTarget = `${prompt.name} ${prompt.description ?? ''} ${JSON.stringify(prompt.arguments ?? [])}`;
-      const screenVerdict = this.screener.screen(inspectTarget, 'prompt_discovery');
+      const screenVerdict = this.boundary.screen(
+        inspectTarget,
+        'prompt_discovery',
+        prompt.name,
+        ctx,
+      );
 
       if (screenVerdict.type === 'hard_violation') {
         const result: SecurityInspectionResult = {
           id: randomUUID(),
+          routing: screenVerdict.routing,
           stage: 'prompt_discovery',
           action: 'block',
           threatCategory: screenVerdict.match.threatCategory,
@@ -1412,9 +1299,37 @@ export class SecurityInspectionEngine {
         continue;
       }
 
+      if (screenVerdict.type === 'ambiguous') {
+        const review = await this.boundary.classify(
+          {
+            requestId: randomUUID(),
+            stage: 'prompt_discovery',
+            method: 'prompts/list',
+            timestamp: new Date().toISOString(),
+            ...ctx,
+          },
+          prompt.name,
+          [inspectTarget],
+          true,
+          screenVerdict,
+        );
+        results.push(review);
+        this.recordAudit(review, 'prompts/list', prompt.name, ctx);
+        if (review.action === 'block' || (review.action === 'review' && this.failClosed)) {
+          blockedPrompts.push({
+            name: prompt.name,
+            reason: review.explanation,
+            threatCategory: review.threatCategory,
+          });
+          continue;
+        }
+        cleanPrompts.push(prompt);
+        continue;
+      }
       cleanPrompts.push(prompt);
       const allowResult: SecurityInspectionResult = {
         id: randomUUID(),
+        routing: screenVerdict.routing,
         stage: 'prompt_discovery',
         action: 'allow',
         threatCategory: 'none',
@@ -1442,7 +1357,6 @@ export class SecurityInspectionEngine {
     _args?: Record<string, unknown>,
   ): Promise<PromptMessagesOutcome> {
     const start = performance.now();
-    const results: SecurityInspectionResult[] = [];
 
     // Session validation
     if (ctx.sessionId) {
@@ -1500,169 +1414,29 @@ export class SecurityInspectionEngine {
       }
     }
 
-    const sanitizedMessages: PromptMessageItem[] = [];
-    let isRedacted = false;
-
-    for (const msg of messages) {
-      const contentText =
-        typeof msg.content.text === 'string' ? msg.content.text : JSON.stringify(msg.content);
-
-      // Tier 1 & 2: Screen prompt messages
-      const screenVerdict = this.screener.screen(contentText, 'prompt_messages');
-
-      if (screenVerdict.type === 'hard_violation') {
-        const res: SecurityInspectionResult = {
-          id: randomUUID(),
-          stage: 'prompt_messages',
-          action: 'block',
-          threatCategory: screenVerdict.match.threatCategory,
-          evidence: [
-            {
-              type: 'deterministic_rule',
-              matchedPattern: screenVerdict.match.matchedPattern,
-              snippet: screenVerdict.match.snippet,
-              location: 'prompt_message',
-            },
-          ],
-          explanation: `Poisoned prompt template intercepted: ${screenVerdict.match.description}`,
-          ruleId: screenVerdict.match.ruleId,
-          evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
-          origin: 'deterministic',
-          isConfirmedViolation: true,
-        };
-        results.push(res);
-        this.recordAudit(res, 'prompts/get', promptName, ctx);
-
-        sanitizedMessages.push({
-          role: msg.role,
-          content: {
-            type: 'text',
-            text: `[Veylith Security Notice]: Prompt template '${promptName}' contained instruction hijacking or policy override attempts and was redacted. Reason: ${screenVerdict.match.description}`,
-          },
-        });
-        isRedacted = true;
-        continue;
-      }
-
-      if (screenVerdict.type === 'clean') {
-        sanitizedMessages.push(msg);
-        const res: SecurityInspectionResult = {
-          id: randomUUID(),
-          stage: 'prompt_messages',
-          action: 'allow',
-          threatCategory: 'none',
-          evidence: [],
-          explanation: 'Prompt message verified clean',
-          evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
-          origin: 'deterministic',
-          isConfirmedViolation: false,
-        };
-        results.push(res);
-        this.recordAudit(res, 'prompts/get', promptName, ctx);
-        continue;
-      }
-
-      // Ambiguous prompt template -> Semantic model check
-      const cacheKey = this.cache.generateKey({
-        payload: contentText,
-        stage: 'prompt_messages',
-        policyVersion: this.policyVersion,
-        modelVersion: `${this.metaAdapter.mode}:${this.metaAdapter.model}`,
-        baselineRevision: this.capabilityRegistry.baselineRevision,
-        clientId: ctx.clientIdentity,
-        serverId: ctx.serverId,
-        sessionId: ctx.sessionId,
-        toolName: promptName,
-      });
-      const cached = this.cache.get(cacheKey);
-
-      if (cached) {
-        results.push(cached);
-        this.recordAudit(cached, 'prompts/get', promptName, ctx);
-        if (cached.action === 'block') {
-          sanitizedMessages.push({
+    const pieces = messages.map((msg) => msg.content.text ?? '');
+    const result = await this.boundary.classify(
+      ctx,
+      promptName,
+      pieces,
+      messages.every((msg) => msg.content.type === 'text' && typeof msg.content.text === 'string'),
+    );
+    this.recordAudit(result, 'prompts/get', promptName, ctx);
+    const isRedacted = result.action === 'block' || (result.action === 'review' && this.failClosed);
+    return {
+      sanitizedMessages: isRedacted
+        ? messages.map((msg) => ({
             role: msg.role,
             content: {
               type: 'text',
-              text: `[Veylith Security Notice]: Prompt template '${promptName}' was quarantined. Reason: ${cached.explanation}`,
+              text: `[Veylith Security Notice]: Prompt '${promptName}' quarantined. Reason: ${result.explanation}`,
             },
-          });
-          isRedacted = true;
-        } else {
-          sanitizedMessages.push(msg);
-        }
-        continue;
-      }
-
-      const modelResult = await this.metaAdapter.inspect(contentText, 'call_response', {
-        promptName,
-      });
-
-      let finalAction: PolicyAction = modelResult.flagged
-        ? modelResult.action
-        : this.defaultDecision;
-      let finalExplanation = modelResult.explanation;
-
-      if (
-        modelResult.action === 'review' &&
-        screenVerdict.type === 'ambiguous' &&
-        screenVerdict.riskLevel === 'high'
-      ) {
-        finalAction = 'block';
-        finalExplanation = `High-risk prompt template quarantined: Security classifier unavailable while template exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`;
-      }
-
-      const res: SecurityInspectionResult = {
-        id: randomUUID(),
-        stage: 'prompt_messages',
-        action: finalAction,
-        threatCategory:
-          finalAction === 'block' && modelResult.threatCategory === 'none'
-            ? 'prompt_poisoning'
-            : modelResult.threatCategory,
-        evidence: modelResult.evidence.map((ev) => ({
-          type: 'semantic_inference',
-          snippet: ev,
-          location: 'prompt_message',
-        })),
-        explanation: finalExplanation,
-        modelId: this.metaAdapter.model,
-        evaluationDurationMs: Math.round((performance.now() - start) * 100) / 100,
-        tokenUsage: modelResult.tokenUsage,
-        origin:
-          modelResult.mode === 'mock'
-            ? 'mock'
-            : modelResult.mode === 'disabled'
-              ? 'deterministic'
-              : 'live',
-        confidence: modelResult.confidence,
-        isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
-      };
-
-      this.cache.set(cacheKey, res);
-      results.push(res);
-      this.recordAudit(res, 'prompts/get', promptName, ctx);
-
-      if (finalAction === 'block' || (finalAction === 'review' && this.failClosed)) {
-        sanitizedMessages.push({
-          role: msg.role,
-          content: {
-            type: 'text',
-            text: `[Veylith Security Notice]: Prompt template '${promptName}' was quarantined. Reason: ${finalExplanation}`,
-          },
-        });
-        isRedacted = true;
-      } else {
-        sanitizedMessages.push(msg);
-      }
-    }
-
-    return {
-      sanitizedMessages,
+          }))
+        : messages,
       isRedacted,
       isBlocked: false,
       threatCategory: isRedacted ? 'prompt_poisoning' : 'none',
-      results,
+      results: [result],
     };
   }
 }

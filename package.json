@@ -36,7 +36,10 @@
     "security:eval:report": "tsx scripts/security-lab/index.ts report",
     "security:eval:live": "tsx scripts/security-lab/live.ts",
     "security:eval:reliability": "node --expose-gc --import tsx scripts/security-lab/reliability.ts",
-    "security:eval:typecheck": "tsc -p scripts/security-lab/tsconfig.json --noEmit"
+    "security:eval:typecheck": "tsc -p scripts/security-lab/tsconfig.json --noEmit",
+    "security:remediation:lifecycle": "node --expose-gc --import tsx scripts/security-remediation/lifecycle.ts",
+    "security:remediation:typecheck": "tsc -p scripts/security-remediation/tsconfig.json --noEmit",
+    "security:remediation:test": "vitest run tests/integration/phase-2f-*.test.ts packages/policy-engine/tests/phase-2f-boundary.test.ts apps/gateway/tests/local-boundary.test.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

@@ -629,6 +629,12 @@ writeFileSync(
         enforceSessions: gw.config.enforceSessions,
         loopbackOnly: true,
       },
+      routingMetrics: gw.securityEngine.getRoutingMetrics(),
+      auditRetention: gw.auditChain.getRetentionState(),
+      evaluationNote:
+        split === 'holdout'
+          ? 'Previously evaluated Phase 2E holdout: regression only, never first-look independent evidence'
+          : 'Previously available development corpus; not independent accuracy evidence',
       actualPaidModelCalls: 0,
       knownProviderInputTokens: 0,
       knownProviderOutputTokens: 0,

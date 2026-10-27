@@ -31,6 +31,8 @@ import {
   SecurityInspectionEngine,
   ClientSessionManager,
   AuditLogChain,
+  toolInputContract,
+  collectClientArgumentText,
   type TrustedToolBinding,
 } from '@veylith/policy-engine';
 import { MetaMuseSecurityAdapter } from '@veylith/meta-adapter';
@@ -152,7 +154,7 @@ export class VeylithStdioAdapter {
 
       this.securityEngine = new SecurityInspectionEngine(policyRules, metaAdapter, {
         failClosed: this.config.failClosed,
-        policyVersion: 'v1.0.0',
+        policyVersion: 'v2f.1',
         capabilityBindings: this.config.capabilityBindings,
         sessionManager: this.sessionManager,
         auditChain: this.auditChain,
@@ -190,6 +192,7 @@ export class VeylithStdioAdapter {
 
     this.serverHandle = serveStdio(() => this.createMcpServerInstance(), {
       legacy: 'serve',
+      maxSubscriptions: 0,
       transport,
       onerror: (err: Error) => {
         this.logger.error('Stdio transport error', { error: err.message });
@@ -287,14 +290,36 @@ export class VeylithStdioAdapter {
       for (const tool of cleanTools) {
         const toolName = tool.name;
 
+        let inputContract;
+        try {
+          inputContract = toolInputContract(
+            this.config.serverId ??
+              this.config.upstreamCommand ??
+              this.config.upstreamUrl ??
+              this.config.gatewayUrl ??
+              'local',
+            tool.inputSchema,
+          );
+        } catch (error) {
+          this.logger.warn('Unsupported tool contract quarantined', {
+            toolName,
+            error: String(error),
+          });
+          continue;
+        }
         server.registerTool(
           toolName,
           {
             description: tool.description ?? '',
-            inputSchema: z.record(z.string(), z.unknown()).optional(),
+            inputSchema: inputContract,
           },
-          async (args) => {
-            return this.handleToolCall(toolName, (args as Record<string, unknown>) ?? {}, tool);
+          async (args, extra) => {
+            return this.handleToolCall(
+              toolName,
+              (args as Record<string, unknown>) ?? {},
+              tool,
+              extra.mcpReq.signal,
+            );
           },
         );
       }
@@ -345,8 +370,8 @@ export class VeylithStdioAdapter {
               description: res.description,
               mimeType: res.mimeType,
             },
-            async (uri) => {
-              const resRead = await this.handleResourceRead(uri.href);
+            async (uri, extra) => {
+              const resRead = await this.handleResourceRead(uri.href, extra.mcpReq.signal);
               return {
                 contents: resRead.contents.map((c) =>
                   c.blob !== undefined
@@ -366,75 +391,9 @@ export class VeylithStdioAdapter {
           );
         }
 
-        // Support subscribe and unsubscribe
-        server.server.registerCapabilities({
-          resources: {
-            subscribe: true,
-            listChanged: true,
-          },
-        });
-
-        server.server.setRequestHandler('resources/subscribe', async (req) => {
-          const uri = (req.params as { uri?: string })?.uri;
-          if (!uri) throw new Error('Missing uri parameter');
-
-          if (this.config.sessionId && this.sessionManager) {
-            const serverId =
-              this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
-            const sessVal = this.sessionManager.validateSession(
-              this.config.sessionId,
-              this.config.clientIdentity,
-              serverId,
-            );
-            if (!sessVal.valid) {
-              throw new Error(`Unauthorized session for subscribe: ${sessVal.reason}`);
-            }
-            if (!this.sessionManager.isResourceAuthorized(this.config.sessionId, uri, serverId)) {
-              throw new Error(`Session not authorized to subscribe to resource: ${uri}`);
-            }
-          }
-
-          const forwardClient = await this.createUpstreamClient();
-          try {
-            await forwardClient.subscribeResource({ uri });
-            return {};
-          } finally {
-            if (!this.config.upstreamCommand) {
-              await forwardClient.close().catch(() => {});
-            }
-          }
-        });
-
-        server.server.setRequestHandler('resources/unsubscribe', async (req) => {
-          const uri = (req.params as { uri?: string })?.uri;
-          if (!uri) throw new Error('Missing uri parameter');
-
-          if (this.config.sessionId && this.sessionManager) {
-            const serverId =
-              this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
-            const sessVal = this.sessionManager.validateSession(
-              this.config.sessionId,
-              this.config.clientIdentity,
-              serverId,
-            );
-            if (!sessVal.valid) {
-              throw new Error(`Unauthorized session for unsubscribe: ${sessVal.reason}`);
-            }
-            if (!this.sessionManager.isResourceAuthorized(this.config.sessionId, uri, serverId)) {
-              throw new Error(`Session not authorized to unsubscribe from resource: ${uri}`);
-            }
-          }
-
-          const forwardClient = await this.createUpstreamClient();
-          try {
-            await forwardClient.unsubscribeResource({ uri });
-            return {};
-          } finally {
-            if (!this.config.upstreamCommand) {
-              await forwardClient.close().catch(() => {});
-            }
-          }
-        });
+        server.server.registerCapabilities({ resources: { subscribe: false, listChanged: false } });
+        // Subscription relay is unsupported, including in bridge mode. Advertising
+        // it here would recreate the gateway's false lifecycle guarantee.
       } catch {
         // Upstream does not support resources or empty
       }
@@ -479,8 +438,12 @@ export class VeylithStdioAdapter {
                 description: prompt.description,
                 argsSchema: argsShape,
               },
-              async (args) => {
-                return this.handlePromptGet(prompt.name, (args as Record<string, unknown>) ?? {});
+              async (args, extra) => {
+                return this.handlePromptGet(
+                  prompt.name,
+                  (args as Record<string, unknown>) ?? {},
+                  extra.mcpReq.signal,
+                );
               },
             );
           } else {
@@ -489,8 +452,8 @@ export class VeylithStdioAdapter {
               {
                 description: prompt.description,
               },
-              async () => {
-                return this.handlePromptGet(prompt.name, {});
+              async (extra) => {
+                return this.handlePromptGet(prompt.name, {}, extra.mcpReq.signal);
               },
             );
           }
@@ -521,6 +484,10 @@ export class VeylithStdioAdapter {
       );
     }
 
+    if (server.server.getCapabilities().tools)
+      server.server.registerCapabilities({ tools: { listChanged: false } });
+    if (server.server.getCapabilities().prompts)
+      server.server.registerCapabilities({ prompts: { listChanged: false } });
     return server;
   }
 
@@ -531,6 +498,7 @@ export class VeylithStdioAdapter {
     toolName: string,
     args: Record<string, unknown>,
     toolDef?: { name: string; description?: string; inputSchema?: unknown },
+    signal?: AbortSignal,
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
     const requestId = crypto.randomUUID();
     const start = performance.now();
@@ -614,16 +582,52 @@ export class VeylithStdioAdapter {
     }
 
     try {
-      const rawResult = await forwardClient.callTool({
-        name: toolName,
-        arguments: args,
-      });
+      const current = (await forwardClient.listTools(undefined, { signal })).tools.find(
+        (t) => t.name === toolName,
+      );
+      if (!current)
+        return {
+          content: [{ type: 'text', text: 'Veylith policy blocked this call: tool disappeared' }],
+          isError: true,
+        };
+      if (this.mode === 'standalone' && this.securityEngine) {
+        const fresh = await this.securityEngine.inspectArguments(ctx, toolName, args, current);
+        if (fresh.action === 'block' || (fresh.action === 'review' && this.config.failClosed))
+          return {
+            content: [
+              { type: 'text', text: `Veylith policy blocked this call: ${fresh.explanation}` },
+            ],
+            isError: true,
+          };
+      }
+      const validation = await toolInputContract(serverId ?? 'local', current.inputSchema)[
+        '~standard'
+      ].validate(args);
+      if (validation.issues)
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Veylith policy blocked this call: current schema rejected arguments',
+            },
+          ],
+          isError: true,
+        };
+      signal?.throwIfAborted();
+      const rawResult = await forwardClient.callTool(
+        {
+          name: toolName,
+          arguments: args,
+        },
+        { signal },
+      );
 
       // In standalone mode, execute Stage 3 Response Inspection locally
       if (this.mode === 'standalone' && this.securityEngine) {
         const respCtx: InspectionContext = {
           requestId,
           stage: 'call_response',
+          clientArgumentText: collectClientArgumentText(args),
           method: 'tools/call',
           toolName,
           serverId,
@@ -702,14 +706,29 @@ export class VeylithStdioAdapter {
   /**
    * Handles a resource read request with security inspection.
    */
-  private async handleResourceRead(uri: string): Promise<{
+  private async handleResourceRead(
+    uri: string,
+    signal?: AbortSignal,
+  ): Promise<{
     contents: Array<{ uri: string; text?: string; blob?: string; mimeType?: string }>;
   }> {
     const forwardClient = await this.createUpstreamClient();
     const serverId = this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
 
     try {
-      const rawResult = await forwardClient.readResource({ uri });
+      signal?.throwIfAborted();
+      if (
+        this.config.sessionId &&
+        this.sessionManager &&
+        (!this.sessionManager.validateSession(
+          this.config.sessionId,
+          this.config.clientIdentity,
+          serverId,
+        ).valid ||
+          !this.sessionManager.isResourceAuthorized(this.config.sessionId, uri, serverId))
+      )
+        throw new Error('Resource authorization expired before forwarding');
+      const rawResult = await forwardClient.readResource({ uri }, { signal });
 
       if (this.mode === 'standalone' && this.securityEngine) {
         const ctx: InspectionContext = {
@@ -772,6 +791,7 @@ export class VeylithStdioAdapter {
   private async handlePromptGet(
     promptName: string,
     args: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<{
     description?: string;
     messages: Array<{ role: 'user' | 'assistant'; content: { type: 'text'; text: string } }>;
@@ -780,10 +800,25 @@ export class VeylithStdioAdapter {
     const serverId = this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
 
     try {
-      const rawResult = await forwardClient.getPrompt({
-        name: promptName,
-        arguments: args as Record<string, string>,
-      });
+      signal?.throwIfAborted();
+      if (
+        this.config.sessionId &&
+        this.sessionManager &&
+        (!this.sessionManager.validateSession(
+          this.config.sessionId,
+          this.config.clientIdentity,
+          serverId,
+        ).valid ||
+          !this.sessionManager.isPromptAuthorized(this.config.sessionId, promptName, serverId))
+      )
+        throw new Error('Prompt authorization expired before forwarding');
+      const rawResult = await forwardClient.getPrompt(
+        {
+          name: promptName,
+          arguments: args as Record<string, string>,
+        },
+        { signal },
+      );
 
       if (this.mode === 'standalone' && this.securityEngine) {
         const ctx: InspectionContext = {

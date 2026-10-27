@@ -1,3 +1,4 @@
+import { toolMetadataText } from '../../packages/policy-engine/src/index.js';
 /** Manual-only real-provider evaluation. No keys read from disk; no retries. */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -212,6 +213,27 @@ try {
     };
     writeFileSync(`${destination}/${c.id}-plan.json`, JSON.stringify(planned, null, 2));
     fixture.reset(planned);
+    // Trusted local operator approval of this runner's fixed fixture metadata only.
+    // Reserved response text is never pinned, classified or executed during development.
+    for (const tool of fixture.definitions)
+      gw.securityEngine.approveTrustedContent(
+        fixture.url,
+        'discovery',
+        tool.name,
+        toolMetadataText(tool),
+      );
+    gw.securityEngine.approveTrustedContent(
+      fixture.url,
+      'resource_discovery',
+      'lab://document',
+      'document Local public document lab://document',
+    );
+    gw.securityEngine.approveTrustedContent(
+      fixture.url,
+      'prompt_discovery',
+      'summary',
+      'summary Local summary prompt []',
+    );
     gw.auditChain.reset();
     gw.invalidateDiscoveryCache();
     const sess = gw.sessionManager.createSession({

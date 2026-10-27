@@ -75,6 +75,11 @@ export class ClientSessionManager {
     return session;
   }
 
+  hasActiveSession(sessionId: string, serverId: string): boolean {
+    const s = this.sessions.get(sessionId);
+    return !!s && s.serverId === serverId && s.expiresAt > Date.now();
+  }
+
   /**
    * Validates a session by ID and optionally verifies that the caller identity and server binding match.
    * Updates lastAccessedAt if valid.

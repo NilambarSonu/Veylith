@@ -15,6 +15,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { canonicalJson } from '../audit/chain.js';
 import type { ToolCapability } from '@veylith/core';
 
 export interface TrustedToolBinding {
@@ -46,6 +47,7 @@ export interface ToolDefinitionInput {
 }
 
 export interface DefinitionTrackingResult {
+  readonly capacityExceeded?: boolean;
   readonly mutated: boolean;
   readonly isNew: boolean;
   readonly previousHash?: string;
@@ -66,7 +68,12 @@ export function computeToolDefinitionHash(tool: {
     description: tool.description ?? '',
     inputSchema: tool.inputSchema ?? {},
   };
-  return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+  return createHash('sha256').update(canonicalJson(normalized)).digest('hex');
+}
+
+/** Stable metadata text shared with operator-side fixture approvals. */
+export function toolMetadataText(tool: ToolDefinitionInput): string {
+  return `${tool.name} ${tool.description ?? ''} ${canonicalJson(tool.inputSchema ?? {})}`;
 }
 
 export class ToolCapabilityRegistry {
@@ -74,7 +81,12 @@ export class ToolCapabilityRegistry {
   private readonly bindings = new Map<string, TrustedToolBinding>();
   private readonly toolDefinitions = new Map<string, ToolDefinitionSnapshot>();
 
-  constructor(initialBindings: readonly TrustedToolBinding[] = []) {
+  constructor(
+    initialBindings: readonly TrustedToolBinding[] = [],
+    private readonly maxDefinitions = 1024,
+  ) {
+    if (!Number.isInteger(maxDefinitions) || maxDefinitions < 1)
+      throw new Error('Invalid definition capacity');
     for (const binding of initialBindings) {
       this.bindCapability(
         binding.serverId,
@@ -95,7 +107,9 @@ export class ToolCapabilityRegistry {
     expectedSchemaHash?: string,
   ): void {
     this.baselineRevision++;
-    const key = `${serverId}:${toolName}`;
+    const key = JSON.stringify([serverId, toolName]);
+    if (!this.bindings.has(key) && this.bindings.size >= this.maxDefinitions)
+      throw new Error('Capability binding capacity reached');
     this.bindings.set(key, {
       serverId,
       toolName,
@@ -117,7 +131,7 @@ export class ToolCapabilityRegistry {
   ): ToolCapability {
     // 1. Check exact serverId + toolName binding
     if (serverId) {
-      const exactKey = `${serverId}:${toolName}`;
+      const exactKey = JSON.stringify([serverId, toolName]);
       const exactMatch = this.bindings.get(exactKey);
       if (exactMatch) {
         return exactMatch.capability;
@@ -125,7 +139,7 @@ export class ToolCapabilityRegistry {
     }
 
     // 2. Check wildcard serverId '*' + toolName binding
-    const wildcardKey = `*:${toolName}`;
+    const wildcardKey = JSON.stringify(['*', toolName]);
     const wildcardMatch = this.bindings.get(wildcardKey);
     if (wildcardMatch) {
       return wildcardMatch.capability;
@@ -133,6 +147,16 @@ export class ToolCapabilityRegistry {
 
     // 3. Unverified or untrusted tool -> Default conservative 'UNKNOWN'
     return 'UNKNOWN';
+  }
+
+  isPinnedDefinition(serverId: string | undefined, tool: ToolDefinitionInput): boolean {
+    const binding =
+      (serverId ? this.bindings.get(JSON.stringify([serverId, tool.name])) : undefined) ??
+      this.bindings.get(JSON.stringify(['*', tool.name]));
+    return (
+      !!binding?.expectedSchemaHash &&
+      binding.expectedSchemaHash === computeToolDefinitionHash(tool)
+    );
   }
 
   /**
@@ -144,7 +168,9 @@ export class ToolCapabilityRegistry {
     tool: ToolDefinitionInput | { name: string; schemaHash: string },
   ): void {
     this.baselineRevision++;
-    const key = `${serverId}:${tool.name}`;
+    const key = JSON.stringify([serverId, tool.name]);
+    if (!this.toolDefinitions.has(key) && this.toolDefinitions.size >= this.maxDefinitions)
+      throw new Error('Definition capacity reached');
     const hash = 'schemaHash' in tool ? tool.schemaHash : computeToolDefinitionHash(tool);
     const now = Date.now();
     const snapshot: ToolDefinitionSnapshot = {
@@ -169,7 +195,9 @@ export class ToolCapabilityRegistry {
     _auditMetadata?: { readonly approvedBy?: string; readonly reason?: string },
   ): ToolDefinitionSnapshot {
     this.baselineRevision++;
-    const key = `${serverId}:${tool.name}`;
+    const key = JSON.stringify([serverId, tool.name]);
+    if (!this.toolDefinitions.has(key) && this.toolDefinitions.size >= this.maxDefinitions)
+      throw new Error('Definition capacity reached');
     const hash = computeToolDefinitionHash(tool);
     const existing = this.toolDefinitions.get(key);
     const now = Date.now();
@@ -210,15 +238,15 @@ export class ToolCapabilityRegistry {
     tool: ToolDefinitionInput,
   ): DefinitionTrackingResult {
     const effectiveServerId = serverId ?? 'default';
-    const key = `${effectiveServerId}:${tool.name}`;
+    const key = JSON.stringify([effectiveServerId, tool.name]);
     const currentHash = computeToolDefinitionHash(tool);
     const existing = this.toolDefinitions.get(key);
     const now = Date.now();
 
     // Check if an expected baseline hash was specified in trusted bindings
     const binding =
-      (serverId ? this.bindings.get(`${serverId}:${tool.name}`) : undefined) ??
-      this.bindings.get(`*:${tool.name}`);
+      (serverId ? this.bindings.get(JSON.stringify([serverId, tool.name])) : undefined) ??
+      this.bindings.get(JSON.stringify(['*', tool.name]));
 
     if (binding?.expectedSchemaHash && currentHash !== binding.expectedSchemaHash) {
       return {
@@ -239,6 +267,20 @@ export class ToolCapabilityRegistry {
     }
 
     if (!existing) {
+      if (this.toolDefinitions.size >= this.maxDefinitions)
+        return {
+          mutated: true,
+          isNew: true,
+          capacityExceeded: true,
+          currentHash,
+          snapshot: {
+            serverId: effectiveServerId,
+            name: tool.name,
+            schemaHash: currentHash,
+            firstSeenAt: now,
+            lastSeenAt: now,
+          },
+        };
       const snapshot: ToolDefinitionSnapshot = {
         serverId: effectiveServerId,
         name: tool.name,
@@ -289,7 +331,7 @@ export class ToolCapabilityRegistry {
     readonly currentHash?: string;
   } {
     const effectiveServerId = serverId ?? 'default';
-    const key = `${effectiveServerId}:${toolName}`;
+    const key = JSON.stringify([effectiveServerId, toolName]);
     const baseline = this.toolDefinitions.get(key);
 
     if (!baseline) {

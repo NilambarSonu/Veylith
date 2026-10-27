@@ -54,7 +54,7 @@ export function loadConfig(): GatewayConfig {
   const metaApiBaseUrl = process.env['META_MODEL_API_BASE_URL'] ?? 'https://api.meta.ai/v1';
   const metaApiKey = process.env['META_MODEL_API_KEY'];
   const metaModel = process.env['META_MODEL'] ?? 'muse-spark-1.3';
-  const failClosed = process.env['FAIL_CLOSED'] === 'true';
+  const failClosed = process.env['FAIL_CLOSED'] !== 'false';
 
   if (isNaN(port) || port < 1 || port > 65535) {
     console.error(`[config] Invalid GATEWAY_PORT: ${process.env['GATEWAY_PORT']}`);

@@ -56,6 +56,8 @@ export interface RiskEvidence {
 
 /** Operational context for an inspection event. */
 export interface InspectionContext {
+  /** Trusted adapter-derived string leaves for exact read-only echo provenance; never from headers. */
+  readonly clientArgumentText?: readonly string[];
   /** Gateway request/event correlation ID. */
   readonly requestId: string;
   /** Inspection stage. */
@@ -96,8 +98,23 @@ export interface SecurityInspectionInput {
   };
 }
 
+/** Routing is provenance/coverage evidence, not an attack probability. */
+export interface RoutingTrace {
+  readonly decision:
+    | 'verified_safe_fast_path'
+    | 'needs_semantic_review'
+    | 'deterministically_blocked'
+    | 'unknown_or_uninspectable';
+  readonly reason: string;
+  readonly origin: 'client' | 'upstream' | 'trusted-local';
+  readonly capability: ToolCapability;
+  readonly inputBytes: number;
+  readonly contextIncluded: boolean;
+}
+
 /** Complete outcome of a security inspection. */
 export interface SecurityInspectionResult {
+  readonly routing?: RoutingTrace;
   /** Unique inspection result identifier. */
   readonly id: string;
   /** The stage evaluated. */
@@ -195,6 +212,7 @@ export interface ClientSession {
 
 /** Tamper-evident local audit log record with hash chaining. */
 export interface AuditRecord {
+  readonly routing?: RoutingTrace;
   readonly sequenceNumber: number;
   readonly eventId: string;
   readonly timestamp: string;

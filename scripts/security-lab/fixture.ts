@@ -9,6 +9,7 @@ export interface Definition {
 export class Fixture {
   current!: LabCase;
   calls: string[] = [];
+  argumentLog: Array<{ tool: string; arguments: unknown }> = [];
   methods: string[] = [];
   definitions: Definition[] = [];
   outage = false;
@@ -62,6 +63,11 @@ export class Fixture {
           }
           case 'tools/call': {
             this.calls.push(params.name);
+            if (this.argumentLog.length >= 64) this.argumentLog.shift();
+            this.argumentLog.push({
+              tool: params.name,
+              arguments: structuredClone(params.arguments ?? {}),
+            });
             if (this.held) await this.held;
             const text =
               params.name === 'add'
@@ -148,6 +154,7 @@ export class Fixture {
   reset(c: LabCase) {
     this.current = c;
     this.calls = [];
+    this.argumentLog = [];
     this.methods = [];
     this.outage = false;
     this.revision = 0;

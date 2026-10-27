@@ -13,11 +13,19 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { AuditRecord, InspectionStage, PolicyAction } from '@veylith/core';
+import type { AuditRecord, InspectionStage, PolicyAction, RoutingTrace } from '@veylith/core';
 
 export const GENESIS_HASH = '0'.repeat(64);
 
+export interface AuditCheckpoint {
+  readonly nextSequenceNumber: number;
+  readonly previousEventHash: string;
+}
 export interface AuditLogChainOptions {
+  /** Bounded in-memory tail; full persistent history is not silently deleted. */
+  readonly maxRetainedRecords?: number;
+  /** Fail closed at capacity; operator must archive/rotate and retain checkpoints. */
+  readonly maxStorageBytes?: number;
   /** Optional file path for append-only JSONL persistence */
   readonly storagePath?: string;
   /** File mode permissions for local audit file (default: 0o600 - owner read/write only) */
@@ -25,6 +33,7 @@ export interface AuditLogChainOptions {
 }
 
 export interface CreateAuditRecordInput {
+  readonly routing?: RoutingTrace;
   readonly sessionId?: string;
   readonly serverId: string;
   readonly clientIdentity?: string;
@@ -83,6 +92,13 @@ export function computeEventHash(
 
 export class AuditLogChain {
   private readonly records: AuditRecord[] = [];
+  private totalRecords = 0;
+  private retainedCheckpoint: AuditCheckpoint = {
+    nextSequenceNumber: 0,
+    previousEventHash: GENESIS_HASH,
+  };
+  private readonly maxRetainedRecords: number;
+  private readonly maxStorageBytes: number;
   private lastHash: string = GENESIS_HASH;
   private readonly storagePath?: string;
   private readonly fileMode: number;
@@ -91,6 +107,16 @@ export class AuditLogChain {
   private persistenceFailed = false;
 
   constructor(options?: AuditLogChainOptions) {
+    this.maxRetainedRecords = options?.maxRetainedRecords ?? 2048;
+    this.maxStorageBytes = options?.maxStorageBytes ?? 64 * 1024 * 1024;
+    if (
+      !Number.isInteger(this.maxRetainedRecords) ||
+      this.maxRetainedRecords < 1 ||
+      this.maxRetainedRecords > 100000
+    )
+      throw new Error('Invalid audit memory retention bound');
+    if (!Number.isSafeInteger(this.maxStorageBytes) || this.maxStorageBytes < 1024)
+      throw new Error('Invalid audit storage bound');
     this.storagePath = options?.storagePath;
     this.fileMode = options?.fileMode ?? 0o600;
 
@@ -108,30 +134,48 @@ export class AuditLogChain {
     }
 
     if (fs.existsSync(this.storagePath)) {
-      const content = fs.readFileSync(this.storagePath, 'utf8');
-      const lines = content.split('\n').filter((l) => l.trim().length > 0);
-      const loadedRecords: AuditRecord[] = [];
-
-      for (let i = 0; i < lines.length; i++) {
-        try {
-          const parsed = JSON.parse(lines[i]!) as AuditRecord;
-          loadedRecords.push(parsed);
-        } catch (err) {
-          throw new Error(
-            `Audit log file corruption: invalid JSON at line ${i + 1}: ${err instanceof Error ? err.message : String(err)}`,
-          );
+      const fd = fs.openSync(this.storagePath, 'r');
+      try {
+        if (fs.fstatSync(fd).size > this.maxStorageBytes)
+          throw new Error('Audit storage exceeds configured capacity');
+        const buffer = Buffer.alloc(65536);
+        let pending = Buffer.alloc(0);
+        let lineNumber = 0;
+        while (true) {
+          const count = fs.readSync(fd, buffer, 0, buffer.length, null);
+          if (!count) break;
+          pending = Buffer.concat([pending, buffer.subarray(0, count)]);
+          let end: number;
+          while ((end = pending.indexOf(10)) >= 0) {
+            if (end > 65536) throw new Error('Audit record exceeds bounded line length');
+            const line = pending.subarray(0, end).toString('utf8');
+            pending = pending.subarray(end + 1);
+            lineNumber++;
+            if (!line.trim()) continue;
+            let record: AuditRecord;
+            try {
+              record = JSON.parse(line) as AuditRecord;
+            } catch {
+              throw new Error(`Audit log file corruption: invalid JSON at line ${lineNumber}`);
+            }
+            const check = this.verifyChain([record], {
+              nextSequenceNumber: this.totalRecords,
+              previousEventHash: this.lastHash,
+            });
+            if (!check.valid)
+              throw new Error(
+                `Audit log file integrity violation at record ${this.totalRecords}: ${check.error}`,
+              );
+            this.retain(record);
+            this.lastHash = record.currentEventHash;
+            this.totalRecords++;
+          }
+          if (pending.length > 65536) throw new Error('Audit record exceeds bounded line length');
         }
-      }
-
-      if (loadedRecords.length > 0) {
-        const verification = this.verifyChain(loadedRecords);
-        if (!verification.valid) {
-          throw new Error(
-            `Audit log file integrity violation at record ${verification.tamperedIndex}: ${verification.error}`,
-          );
-        }
-        this.records.push(...loadedRecords);
-        this.lastHash = loadedRecords[loadedRecords.length - 1]!.currentEventHash;
+        if (pending.toString('utf8').trim())
+          throw new Error('Audit log file corruption: incomplete final JSONL line');
+      } finally {
+        fs.closeSync(fd);
       }
     }
 
@@ -143,7 +187,7 @@ export class AuditLogChain {
    * Appends an event to the tamper-evident hash chain and persists it if configured.
    */
   append(input: CreateAuditRecordInput): AuditRecord {
-    const sequenceNumber = this.records.length;
+    const sequenceNumber = this.totalRecords;
     const eventId = `vyl-evt-${randomUUID()}`;
     const timestamp = new Date().toISOString();
 
@@ -163,6 +207,7 @@ export class AuditLogChain {
       modelId: input.modelId,
       latencyMs: input.latencyMs,
       tokenUsage: input.tokenUsage,
+      routing: input.routing,
       previousEventHash: this.lastHash,
     };
 
@@ -172,6 +217,9 @@ export class AuditLogChain {
       ...recordData,
       currentEventHash,
     };
+
+    const bytes = Buffer.from(`${canonicalJson(fullRecord)}\n`);
+    if (bytes.length > 65536) throw new Error('Audit record exceeds bounded line length');
 
     // A failed or closed persistent sink must never silently turn into memory-only audit.
     if (this.storagePath && (this.fileFd === undefined || this.persistenceFailed)) {
@@ -186,7 +234,8 @@ export class AuditLogChain {
         if (fs.fstatSync(this.fileFd).size !== this.persistedBytes) {
           throw new Error('Audit log changed by another writer or was truncated; reload required');
         }
-        const bytes = Buffer.from(`${canonicalJson(fullRecord)}\n`);
+        if (this.persistedBytes + bytes.length > this.maxStorageBytes)
+          throw new Error('Audit storage capacity reached; archive and rotate before recovery');
         let offset = 0;
         while (offset < bytes.length) {
           const written = fs.writeSync(this.fileFd, bytes, offset, bytes.length - offset);
@@ -206,17 +255,39 @@ export class AuditLogChain {
       }
     }
 
-    this.records.push(fullRecord);
+    this.retain(fullRecord);
+    this.totalRecords++;
     this.lastHash = currentEventHash;
 
     return fullRecord;
   }
 
+  private retain(record: AuditRecord): void {
+    this.records.push(record);
+    if (this.records.length > this.maxRetainedRecords) {
+      const removed = this.records.shift()!;
+      this.retainedCheckpoint = {
+        nextSequenceNumber: removed.sequenceNumber + 1,
+        previousEventHash: removed.currentEventHash,
+      };
+    }
+  }
+  getRetentionState() {
+    return {
+      retainedRecords: this.records.length,
+      totalRecords: this.totalRecords,
+      maxRetainedRecords: this.maxRetainedRecords,
+      maxStorageBytes: this.maxStorageBytes,
+      checkpoint: { ...this.retainedCheckpoint },
+      scope: 'in-memory-tail' as const,
+      externallyAnchored: false,
+    };
+  }
   /**
    * Returns a read-only snapshot of all records in the chain.
    */
   getRecords(): readonly AuditRecord[] {
-    return [...this.records];
+    return structuredClone(this.records);
   }
 
   /**
@@ -248,19 +319,28 @@ export class AuditLogChain {
   /**
    * Verifies the cryptographic integrity of the entire audit chain.
    */
-  verifyChain(records: readonly AuditRecord[] = this.records): ChainVerificationResult {
-    let expectedPreviousHash = GENESIS_HASH;
+  verifyChain(
+    records?: readonly AuditRecord[],
+    checkpoint?: AuditCheckpoint,
+  ): ChainVerificationResult {
+    const start =
+      checkpoint ??
+      (records === undefined
+        ? this.retainedCheckpoint
+        : { nextSequenceNumber: 0, previousEventHash: GENESIS_HASH });
+    records = records ?? this.records;
+    let expectedPreviousHash = start.previousEventHash;
 
     for (let i = 0; i < records.length; i++) {
       const record = records[i]!;
 
       // 1. Check sequence number continuity
-      if (record.sequenceNumber !== i) {
+      if (record.sequenceNumber !== i + start.nextSequenceNumber) {
         return {
           valid: false,
           totalRecords: records.length,
           tamperedIndex: i,
-          error: `Sequence number mismatch at index ${i}: expected ${i}, found ${record.sequenceNumber}`,
+          error: `Sequence number mismatch at index ${i}: expected ${i + start.nextSequenceNumber}, found ${record.sequenceNumber}`,
         };
       }
 
@@ -303,6 +383,8 @@ export class AuditLogChain {
     this.persistenceFailed = false;
     this.persistedBytes = 0;
     this.records.length = 0;
+    this.totalRecords = 0;
+    this.retainedCheckpoint = { nextSequenceNumber: 0, previousEventHash: GENESIS_HASH };
     this.lastHash = GENESIS_HASH;
     if (this.fileFd !== undefined) {
       fs.closeSync(this.fileFd);
