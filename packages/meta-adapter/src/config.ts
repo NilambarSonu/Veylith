@@ -30,7 +30,8 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
   const apiBaseUrl =
     overrides?.apiBaseUrl ?? process.env['META_MODEL_API_BASE_URL'] ?? 'https://api.meta.ai/v1';
 
-  const apiKey = overrides?.apiKey ?? process.env['META_MODEL_API_KEY'];
+  const apiKey =
+    overrides?.apiKey ?? process.env['META_MODEL_API_KEY'] ?? process.env['META_API_KEY'];
   const model = overrides?.model ?? process.env['META_MODEL'] ?? 'muse-spark-1.3';
 
   const maxOutputTokens =

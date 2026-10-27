@@ -16,6 +16,37 @@ import type { MetaAdapterConfig } from './config.js';
 import { loadMetaConfig } from './config.js';
 import { UsageTracker } from './tracker.js';
 
+/** Official Meta Responses API JSON Schema for structured classification. */
+export const CLASSIFICATION_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    flagged: { type: 'boolean' },
+    threatCategory: {
+      type: 'string',
+      enum: [
+        'tool_poisoning',
+        'suspicious_arguments',
+        'malicious_response',
+        'credential_leak',
+        'destructive_command',
+        'none',
+      ],
+    },
+    action: {
+      type: 'string',
+      enum: ['allow', 'block', 'review'],
+    },
+    confidence: { type: 'number' },
+    explanation: { type: 'string' },
+    evidence: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+  },
+  required: ['flagged', 'threatCategory', 'action', 'confidence', 'explanation'],
+  additionalProperties: false,
+} as const;
+
 export class MetaMuseSecurityAdapter implements MetaAdapter {
   private readonly config: MetaAdapterConfig;
   public readonly tracker: UsageTracker;
@@ -247,12 +278,15 @@ ${sanitizedUntrustedContent}
         body: JSON.stringify({
           model: this.config.model,
           input: fullPrompt,
-          prompt: fullPrompt, // Backward compatibility alias
           reasoning: {
             effort: this.config.reasoningEffort,
           },
-          response_format: {
-            type: 'json_object',
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'security_classification',
+              schema: CLASSIFICATION_JSON_SCHEMA,
+            },
           },
           max_output_tokens: this.config.maxOutputTokens,
           temperature: 0.0,
@@ -265,13 +299,24 @@ ${sanitizedUntrustedContent}
       }
 
       const rawJson = (await response.json()) as {
+        status?: string;
+        finish_reason?: string;
+        incomplete_details?: Record<string, unknown>;
         text?: string;
         response?: string;
         output?: Array<{
+          status?: string;
+          finish_reason?: string;
           text?: string;
           content?: Array<{ type?: string; text?: string }> | string;
         }>;
         usage?: {
+          input_tokens?: number;
+          output_tokens?: number;
+          total_tokens?: number;
+          input_tokens_details?: { cached_tokens?: number };
+          output_tokens_details?: { reasoning_tokens?: number };
+          // Legacy / compatibility aliases:
           prompt_tokens?: number;
           completion_tokens?: number;
           cached_tokens?: number;
@@ -280,6 +325,21 @@ ${sanitizedUntrustedContent}
           completion_tokens_details?: { reasoning_tokens?: number };
         };
       };
+
+      // Check for incomplete or truncated status from Meta Responses API
+      const isStatusIncomplete =
+        rawJson.status === 'incomplete' ||
+        rawJson.status === 'failed' ||
+        rawJson.finish_reason === 'length' ||
+        Boolean(rawJson.incomplete_details) ||
+        (Array.isArray(rawJson.output) &&
+          rawJson.output.some((o) => o?.finish_reason === 'length' || o?.status === 'incomplete'));
+
+      if (isStatusIncomplete) {
+        throw new Error(
+          'Meta model response was truncated or marked incomplete (finish_reason=length)',
+        );
+      }
 
       // Extract model text from Meta Responses format (output[].content[].text) or standard fields
       let rawText = '';
@@ -308,26 +368,44 @@ ${sanitizedUntrustedContent}
       }
 
       if (!rawText || rawText.trim().length === 0) {
-        rawText = JSON.stringify(rawJson);
+        throw new Error('Meta model returned empty response output');
       }
 
-      // Extract json from markdown, raw text, or truncated candidate
-      const cleanJson = this.extractJson(rawText);
-      const parsed = ModelClassificationSchema.parse(cleanJson);
+      // Parse JSON without fabricating / repairing truncated outputs
+      const unverifiedJson = this.extractJson(rawText);
+      const parseResult = ModelClassificationSchema.safeParse(unverifiedJson);
+
+      if (!parseResult.success) {
+        throw new Error(
+          `Classification schema validation failed: ${parseResult.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`,
+        );
+      }
+      const parsed = parseResult.data;
 
       const durationMs = Math.round((performance.now() - start) * 100) / 100;
-      const promptTokens = rawJson.usage?.prompt_tokens ?? Math.round(userPrompt.length / 4);
+      const promptTokens =
+        rawJson.usage?.input_tokens ??
+        rawJson.usage?.prompt_tokens ??
+        Math.round(userPrompt.length / 4);
       const cachedPromptTokens =
-        rawJson.usage?.cached_tokens ?? rawJson.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+        rawJson.usage?.input_tokens_details?.cached_tokens ??
+        rawJson.usage?.cached_tokens ??
+        rawJson.usage?.prompt_tokens_details?.cached_tokens ??
+        0;
+      const outputTokens =
+        rawJson.usage?.output_tokens ??
+        rawJson.usage?.completion_tokens ??
+        Math.round(rawText.length / 4);
       const reasoningTokens =
+        rawJson.usage?.output_tokens_details?.reasoning_tokens ??
         rawJson.usage?.reasoning_tokens ??
         rawJson.usage?.completion_tokens_details?.reasoning_tokens ??
         0;
-      const completionTokens = rawJson.usage?.completion_tokens ?? Math.round(rawText.length / 4);
 
+      // Note: outputTokens already includes reasoningTokens; do not double count!
       this.tracker.recordSuccess(
         promptTokens,
-        completionTokens,
+        outputTokens,
         durationMs,
         cachedPromptTokens,
         reasoningTokens,
@@ -343,8 +421,10 @@ ${sanitizedUntrustedContent}
         rawScore: parsed.confidence,
         tokenUsage: {
           promptTokens,
-          completionTokens,
-          totalTokens: promptTokens + completionTokens,
+          completionTokens: outputTokens,
+          totalTokens: promptTokens + outputTokens,
+          cachedPromptTokens,
+          reasoningTokens,
         },
         durationMs,
         mode: 'live',
@@ -360,14 +440,15 @@ ${sanitizedUntrustedContent}
         .replace(/(?:Bearer\s+)[a-zA-Z0-9_\-.]+/gi, 'Bearer [REDACTED]')
         .replace(/\bsk-[a-zA-Z0-9_\-.]+/gi, 'sk-[REDACTED]');
 
-      // Safe fallback on outage: flag as review, do not leak keys
+      // Safe fallback on outage / truncated response / validation error:
+      // Return explicit review verdict and enforce risk-based fallback
       return {
         flagged: true,
         threatCategory: 'none',
         action: 'review',
         explanation: `Meta model outage / classification error: ${sanitizedErrMsg}`,
         confidence: 0.0,
-        evidence: ['Classifier fallback due to error'],
+        evidence: ['Classifier fallback due to error or incomplete response'],
         durationMs,
         mode: 'live',
         model: this.config.model,
@@ -377,54 +458,47 @@ ${sanitizedUntrustedContent}
     }
   }
 
-  /** Robust JSON extractor supporting raw JSON, markdown code blocks, and truncated repair */
+  /**
+   * JSON extractor supporting raw JSON, markdown code blocks, or delimited substring.
+   *
+   * STRICT SECURITY INVARIANT:
+   * NEVER synthesizes closing quotes or brackets to fabricate partial JSON.
+   * If parsing fails, throws an error so the caller enforces a risk-based fallback.
+   */
   public extractJson(text: string): unknown {
+    const trimmed = text.trim();
+
+    // 1. Direct JSON parse
     try {
-      return JSON.parse(text);
+      return JSON.parse(trimmed);
     } catch {
-      // 1. Try markdown code blocks: ```json ... ```
-      const match = /```(?:json)?\s*([\s\S]*?)\s*```/i.exec(text);
-      if (match && match[1]) {
-        try {
-          return JSON.parse(match[1].trim());
-        } catch {
-          // fall through
-        }
-      }
-
-      // 2. Try substring between first { and last }
-      const firstBrace = text.indexOf('{');
-      const lastBrace = text.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace > firstBrace) {
-        try {
-          return JSON.parse(text.substring(firstBrace, lastBrace + 1));
-        } catch {
-          // fall through to truncated repair
-        }
-      }
-
-      // 3. Attempt repair of truncated JSON outputs (e.g. unclosed strings or objects)
-      if (firstBrace !== -1) {
-        let candidate = text.substring(firstBrace).trim();
-        // Balance quotes
-        const quoteCount = (candidate.match(/(?<!\\)"/g) || []).length;
-        if (quoteCount % 2 !== 0) {
-          candidate += '"';
-        }
-        // Balance braces
-        const openBraces = (candidate.match(/\{/g) || []).length;
-        const closeBraces = (candidate.match(/\}/g) || []).length;
-        for (let i = 0; i < openBraces - closeBraces; i++) {
-          candidate += '}';
-        }
-        try {
-          return JSON.parse(candidate);
-        } catch {
-          // fall through
-        }
-      }
-
-      throw new Error(`Unable to parse valid JSON classification from model output`);
+      // Continue to check markdown code blocks or bounded JSON
     }
+
+    // 2. Try markdown code blocks: ```json ... ```
+    const match = /```(?:json)?\s*([\s\S]*?)\s*```/i.exec(trimmed);
+    if (match && match[1]) {
+      try {
+        return JSON.parse(match[1].trim());
+      } catch {
+        // Fall through
+      }
+    }
+
+    // 3. Try substring between first { and last } (MUST have both braces)
+    const firstBrace = trimmed.indexOf('{');
+    const lastBrace = trimmed.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      try {
+        return JSON.parse(trimmed.substring(firstBrace, lastBrace + 1));
+      } catch {
+        // Fall through
+      }
+    }
+
+    // Never fabricate or guess missing brackets!
+    throw new Error(
+      'Unable to parse valid JSON classification from model output: output is incomplete or malformed',
+    );
   }
 }

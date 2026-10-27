@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { MetaMuseSecurityAdapter } from '../src/index.js';
+import {
+  MetaMuseSecurityAdapter,
+  ModelClassificationSchema,
+  CLASSIFICATION_JSON_SCHEMA,
+} from '../src/index.js';
 
 describe('MetaMuseSecurityAdapter', () => {
   it('operates in disabled mode when configured', async () => {
@@ -117,20 +121,70 @@ describe('MetaMuseSecurityAdapter', () => {
     expect(roleResult.threatCategory).toBe('malicious_response');
   });
 
-  it('extracts JSON from markdown fences and repairs truncated JSON', () => {
+  it('extracts JSON from markdown fences and bounded JSON but strictly rejects truncated JSON', () => {
     const adapter = new MetaMuseSecurityAdapter({ mode: 'mock' });
 
     // 1. Markdown code block
     const markdown = 'Here is the verdict:\n```json\n{"flagged": false, "action": "allow"}\n```';
     expect(adapter.extractJson(markdown)).toEqual({ flagged: false, action: 'allow' });
 
-    // 2. Truncated JSON missing closing brace
-    const truncated = '{"flagged": true, "action": "block"';
-    expect(adapter.extractJson(truncated)).toEqual({ flagged: true, action: 'block' });
+    // 2. Bounded JSON with surrounding text
+    const bounded = 'Analysis: {"flagged": true, "action": "block"} Done.';
+    expect(adapter.extractJson(bounded)).toEqual({ flagged: true, action: 'block' });
 
-    // 3. Truncated JSON missing quote and brace
+    // 3. Truncated JSON missing closing brace MUST throw (no fabricated repair)
+    const truncated = '{"flagged": true, "action": "block"';
+    expect(() => adapter.extractJson(truncated)).toThrowError(/output is incomplete or malformed/);
+
+    // 4. Truncated JSON missing quote and brace MUST throw (no fabricated repair)
     const truncatedQuote = '{"flagged": true, "action": "block';
-    expect(adapter.extractJson(truncatedQuote)).toEqual({ flagged: true, action: 'block' });
+    expect(() => adapter.extractJson(truncatedQuote)).toThrowError(
+      /output is incomplete or malformed/,
+    );
+  });
+
+  it('validates structured classification schema and rejects invalid or partial models', () => {
+    // Valid object
+    const valid = {
+      flagged: true,
+      threatCategory: 'tool_poisoning',
+      action: 'block',
+      confidence: 0.95,
+      explanation: 'Detected hostile instruction',
+      evidence: ['System override'],
+    };
+    expect(ModelClassificationSchema.safeParse(valid).success).toBe(true);
+
+    // Incomplete object missing required action
+    const missingAction = {
+      flagged: true,
+      threatCategory: 'tool_poisoning',
+      confidence: 0.95,
+      explanation: 'Detected hostile instruction',
+    };
+    expect(ModelClassificationSchema.safeParse(missingAction).success).toBe(false);
+
+    // Invalid threatCategory
+    const invalidCategory = {
+      ...valid,
+      threatCategory: 'invalid_category_unknown',
+    };
+    expect(ModelClassificationSchema.safeParse(invalidCategory).success).toBe(false);
+
+    // Out of range confidence
+    const invalidConfidence = {
+      ...valid,
+      confidence: 1.5,
+    };
+    expect(ModelClassificationSchema.safeParse(invalidConfidence).success).toBe(false);
+  });
+
+  it('exports valid CLASSIFICATION_JSON_SCHEMA matching Meta Responses API text.format format', () => {
+    expect(CLASSIFICATION_JSON_SCHEMA.type).toBe('object');
+    expect(CLASSIFICATION_JSON_SCHEMA.required).toContain('flagged');
+    expect(CLASSIFICATION_JSON_SCHEMA.required).toContain('action');
+    expect(CLASSIFICATION_JSON_SCHEMA.required).toContain('threatCategory');
+    expect(CLASSIFICATION_JSON_SCHEMA.properties.action.enum).toEqual(['allow', 'block', 'review']);
   });
 
   it('redacts sensitive credentials from live error messages', async () => {

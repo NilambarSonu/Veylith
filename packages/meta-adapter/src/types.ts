@@ -32,6 +32,8 @@ export interface TokenUsage {
   readonly promptTokens: number;
   readonly completionTokens: number;
   readonly totalTokens: number;
+  readonly cachedPromptTokens?: number;
+  readonly reasoningTokens?: number;
 }
 
 /** Result of semantic inspection. */

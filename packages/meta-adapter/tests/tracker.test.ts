@@ -55,7 +55,7 @@ describe('UsageTracker', () => {
     );
   });
 
-  it('records reasoning tokens and reports them in usage summary', () => {
+  it('records reasoning tokens and reports them in usage summary as a subset', () => {
     // 500 prompt tokens, 300 completion tokens, 100 latency, 0 cached, 150 reasoning tokens
     tracker.recordSuccess(500, 300, 100, 0, 150);
 
@@ -64,6 +64,20 @@ describe('UsageTracker', () => {
     expect(report.completionTokens).toBe(300);
     expect(report.reasoningTokens).toBe(150);
     expect(report.totalTokens).toBe(800);
+  });
+
+  it('does not double-count reasoning tokens when calculating costs', () => {
+    // In Meta Responses API: output_tokens = 300, which already includes 100 reasoning tokens.
+    // 1000 standard prompt tokens * $1.25 / 1M = $0.00125
+    // 300 output tokens * $4.25 / 1M = $0.001275
+    // Expected total cost = $0.002525. Reasoning tokens must NOT add an extra $0.000425.
+    tracker.recordSuccess(1000, 300, 50, 0, 100);
+
+    const report = tracker.getReport();
+    expect(report.completionTokens).toBe(300);
+    expect(report.reasoningTokens).toBe(100);
+    expect(report.totalTokens).toBe(1300);
+    expect(report.estimatedCostUsd).toBeCloseTo(0.002525, 6);
   });
 
   it('enforces budget cap with official pricing', () => {

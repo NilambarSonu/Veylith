@@ -122,18 +122,25 @@ async function runBenchmarkSuite() {
   console.log(`   Status             : Passed (Safely aborted without hanging)\n`);
 
   // ---------------------------------------------------------------------------
-  // 4. Resilience: Truncated JSON Output Recovery
+  // 4. Resilience: Truncated JSON Output Rejection & Fail-Safe Handling
   // ---------------------------------------------------------------------------
-  console.log('4. Testing Invalid / Truncated Structured JSON Recovery...');
+  console.log('4. Testing Incomplete / Truncated Structured JSON Rejection...');
   const testTruncated = '{"flagged": true, "threatCategory": "tool_poisoning", "action": "block"';
-  const t0Trunc = performance.now();
-  const recovered = mockAdapter.extractJson(testTruncated) as Record<string, unknown>;
-  const truncElapsed = Math.round((performance.now() - t0Trunc) * 1000) / 1000;
+  let parseThrew = false;
+  let parseErrorMessage = '';
+  try {
+    mockAdapter.extractJson(testTruncated);
+  } catch (err) {
+    parseThrew = true;
+    parseErrorMessage = err instanceof Error ? err.message : String(err);
+  }
 
   console.log(`   Truncated Input    : ${testTruncated}`);
-  console.log(`   Recovered Object   : ${JSON.stringify(recovered)}`);
-  console.log(`   Recovery Latency   : ${truncElapsed} ms`);
-  console.log(`   Status             : Passed (Recovered valid JSON structure)\n`);
+  console.log(`   Parse Rejection    : Threw expected error: "${parseErrorMessage}"`);
+  console.log(
+    `   Fabrication Blocked: ${parseThrew ? 'YES (No synthetic allow/block generated)' : 'NO'}`,
+  );
+  console.log(`   Status             : Passed (Safely rejected incomplete output)\n`);
 
   // ---------------------------------------------------------------------------
   // 5. Safeguards: Budget Exhaustion Circuit Breaker

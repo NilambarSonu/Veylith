@@ -6,14 +6,19 @@
  *   Standard Input:     $1.25 per 1,000,000 tokens ($0.00000125 / token)
  *   Cached Input:       $0.15 per 1,000,000 tokens ($0.00000015 / token)
  *   Output:             $4.25 per 1,000,000 tokens ($0.00000425 / token)
+ *
+ * NOTE: Meta Responses API `usage.output_tokens` already includes
+ * `usage.output_tokens_details.reasoning_tokens`. Do not add reasoning
+ * tokens again when calculating costs. Reasoning tokens are tracked as
+ * a subset for observability only.
  */
 
 export interface UsageReport {
   readonly requestCount: number;
   readonly promptTokens: number;
   readonly cachedPromptTokens: number;
-  readonly completionTokens: number;
-  readonly reasoningTokens: number;
+  readonly completionTokens: number; // Represents total output tokens (including reasoning tokens)
+  readonly reasoningTokens: number; // Subset of completionTokens tracked for observability
   readonly totalTokens: number;
   readonly estimatedCostUsd: number;
   readonly failureCount: number;
@@ -26,15 +31,15 @@ export class UsageTracker {
   private requestCount = 0;
   private promptTokens = 0;
   private cachedPromptTokens = 0;
-  private completionTokens = 0;
-  private reasoningTokens = 0;
+  private completionTokens = 0; // Total output tokens (reasoning tokens already included)
+  private reasoningTokens = 0; // Observability subset
   private failureCount = 0;
   private totalLatencyMs = 0;
 
   // Official Pricing constants (USD per token)
   private readonly standardInputPriceUsd = 0.00000125; // $1.25 / 1M
   private readonly cachedInputPriceUsd = 0.00000015; // $0.15 / 1M
-  private readonly outputTokenPriceUsd = 0.00000425; // $4.25 / 1M (covers completion & reasoning tokens)
+  private readonly outputTokenPriceUsd = 0.00000425; // $4.25 / 1M (output rate covering completion & reasoning)
 
   constructor(
     private readonly maxRequestsPerRun: number = 10,
@@ -107,7 +112,7 @@ export class UsageTracker {
       completionTokens: this.completionTokens,
       reasoningTokens: this.reasoningTokens,
       totalTokens,
-      estimatedCostUsd: Math.round(this.getEstimatedCostUsd() * 100000) / 100000,
+      estimatedCostUsd: Math.round(this.getEstimatedCostUsd() * 1000000) / 1000000,
       failureCount: this.failureCount,
       averageLatencyMs: Math.round(avgLatency * 100) / 100,
       maxRequestsPerRun: this.maxRequestsPerRun,

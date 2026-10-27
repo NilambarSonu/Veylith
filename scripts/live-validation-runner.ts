@@ -111,9 +111,10 @@ async function promptForApiKey(): Promise<string> {
 }
 
 function loadKeySecurely(): string | undefined {
-  // 1. Check process environment
-  if (process.env['META_MODEL_API_KEY'] && process.env['META_MODEL_API_KEY'].trim().length > 0) {
-    return process.env['META_MODEL_API_KEY'].trim();
+  // 1. Check process environment (META_MODEL_API_KEY or META_API_KEY)
+  const envKey = process.env['META_MODEL_API_KEY'] ?? process.env['META_API_KEY'];
+  if (envKey && envKey.trim().length > 0) {
+    return envKey.trim();
   }
 
   // 2. Check local private .env file (excluded from git)
@@ -121,7 +122,7 @@ function loadKeySecurely(): string | undefined {
   if (existsSync(envPath)) {
     try {
       const content = readFileSync(envPath, 'utf-8');
-      const match = /^META_MODEL_API_KEY=["']?([^"'\r\n]+)["']?/m.exec(content);
+      const match = /^(?:META_MODEL_API_KEY|META_API_KEY)=["']?([^"'\r\n]+)["']?/m.exec(content);
       if (match && match[1] && match[1].trim().length > 0) {
         return match[1].trim();
       }

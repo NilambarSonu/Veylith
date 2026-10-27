@@ -18,7 +18,7 @@ export type { MetaAdapterConfig } from './config.js';
 export { loadMetaConfig } from './config.js';
 export type { UsageReport } from './tracker.js';
 export { UsageTracker } from './tracker.js';
-export { MetaMuseSecurityAdapter } from './adapter.js';
+export { MetaMuseSecurityAdapter, CLASSIFICATION_JSON_SCHEMA } from './adapter.js';
 
 /** Legacy stub implementation kept for backwards compatibility. */
 export class StubMetaAdapter {
