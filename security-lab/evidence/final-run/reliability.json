@@ -1,0 +1,165 @@
+{
+  "gitCommit": "43afac2a4179338a5516e45dae59c78c0b99e834",
+  "hardware": {
+    "cpu": "Apple M5",
+    "logicalCpus": 10,
+    "memoryBytes": 34359738368,
+    "os": "27.2.0",
+    "node": "v24.21.0"
+  },
+  "actualPaidCalls": 0,
+  "results": [
+    {
+      "name": "abrupt process termination, durable acknowledgement, restart",
+      "passed": true,
+      "evidence": {
+        "acknowledgedRecordsRecovered": 1,
+        "restartAppendSucceeded": true,
+        "scope": "process death after fsync acknowledgement, not power-loss simulation"
+      },
+      "durationMs": 103.297
+    },
+    {
+      "name": "incomplete final JSONL line fails startup without silent repair",
+      "passed": true,
+      "evidence": {
+        "rejected": true
+      },
+      "durationMs": 4.971917000000019
+    },
+    {
+      "name": "concurrent processes reject stale chain writers",
+      "passed": true,
+      "evidence": {
+        "exitCodes": [1, 1, 0, 1],
+        "valid": true,
+        "availabilityMayRejectStaleWriters": true
+      },
+      "durationMs": 91.36483300000003
+    },
+    {
+      "name": "two in-process writers and live truncation fail closed",
+      "passed": true,
+      "evidence": {
+        "rejected": true,
+        "truncatedRejected": true,
+        "validPrefixTruncationAfterRestart": "not detectable without external anchor"
+      },
+      "durationMs": 5.109290999999985
+    },
+    {
+      "name": "simulated ENOSPC, partial write, sticky failure, restart quarantine",
+      "passed": true,
+      "evidence": {
+        "rejected": true,
+        "sticky": true,
+        "restartRejected": true,
+        "realDiskExhaustion": false
+      },
+      "durationMs": 0.8612079999999764
+    },
+    {
+      "name": "closed persistent audit sink cannot become memory-only",
+      "passed": true,
+      "evidence": {
+        "denied": true
+      },
+      "durationMs": 0.18449999999995725
+    },
+    {
+      "name": "fsync overhead, 200 appends per arm",
+      "passed": true,
+      "evidence": {
+        "n": 200,
+        "memoryMs": 1.9097919999999817,
+        "diskWithLockAndFsyncMs": 763.41175,
+        "memoryAppendsPerSecond": 104723.44632295135,
+        "durableAppendsPerSecond": 261.98182042652604,
+        "perAppendOverheadMs": 3.80750979,
+        "note": "Includes JSON, lock and fsync; not a pure fsync microbenchmark"
+      },
+      "durationMs": 765.6425839999999
+    },
+    {
+      "name": "local session TTL persists through validation",
+      "passed": true,
+      "evidence": {
+        "ttlMs": 40,
+        "remainingMs": 40
+      },
+      "durationMs": 0.5785000000000764
+    },
+    {
+      "name": "repeated create/load/cleanup cycles with retained-heap GC samples",
+      "passed": true,
+      "evidence": {
+        "cycles": 12,
+        "objectsPerCycle": 1000,
+        "gcAvailable": true,
+        "retainedHeapBytes": [
+          21389624, 21305640, 21308672, 21308784, 21311696, 21300936, 21305800, 21301056, 21301432,
+          21301728, 21327760, 21326832
+        ],
+        "growthBytes": -62792,
+        "scope": "session/audit component cycles; full HTTP cycles separately sampled; no zero-leak conclusion"
+      },
+      "durationMs": 155.61566700000003
+    },
+    {
+      "name": "default body limit and client-observed HTTP 413",
+      "passed": true,
+      "evidence": {
+        "defaultBytes": 1048576,
+        "httpStatus": 413,
+        "body": "{\"error\":\"Payload too large. Maximum request body is 1048576 bytes\"}"
+      },
+      "durationMs": 18.87295899999981
+    },
+    {
+      "name": "malformed JSON produces client-observed HTTP 400",
+      "passed": true,
+      "evidence": {
+        "httpStatus": 400
+      },
+      "durationMs": 5.089416999999912
+    },
+    {
+      "name": "truncated upload and early disconnect do not crash gateway",
+      "passed": true,
+      "evidence": {
+        "recoveryStatus": 400
+      },
+      "durationMs": 2.81966599999987
+    },
+    {
+      "name": "slow response consumer drains a large harmless response without truncation",
+      "passed": true,
+      "evidence": {
+        "responseBytes": 2097265,
+        "consumerPauseMs": 25
+      },
+      "durationMs": 94.60670800000003
+    },
+    {
+      "name": "six full MCP load and cleanup cycles with GC samples",
+      "passed": true,
+      "evidence": {
+        "cycles": 6,
+        "callsPerCycle": 25,
+        "gcAvailable": true,
+        "retainedHeapBytes": [37703592, 38212360, 38299608, 38313744, 38434312, 38444360],
+        "growthBytes": 740768,
+        "scope": "single process gateway + fixture + SDK; short diagnostic, not a zero-leak claim"
+      },
+      "durationMs": 731.0551250000001
+    },
+    {
+      "name": "slow uploads occupy admission slots; client observes 429",
+      "passed": true,
+      "evidence": {
+        "httpStatus": 429
+      },
+      "durationMs": 32.60233300000027
+    }
+  ]
+}

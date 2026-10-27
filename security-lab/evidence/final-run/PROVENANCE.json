@@ -1,0 +1,29 @@
+{
+  "offlineSourceCommit": "43afac2a4179338a5516e45dae59c78c0b99e834",
+  "manualLiveRunnerCommit": "84751f334624865956455d2a3ca7ee1c84876e0d",
+  "manifestSha256": "9e9c3631be67ef284858b8a3a874be4866e917f25ed6d3c15ed6eafe1d68dacf",
+  "rawResultEncoding": "gzip compressed UTF-8 JSON; decompress with gzip -dc",
+  "allOfflineRunWorkingTreesClean": true,
+  "files": {
+    "development-direct.json.gz": "9ffb1f48ee7fec51349394a19b4ef1714d7400342c6da87b733bbb5cd817e35a",
+    "typecheck.log.gz": "fcdf3ec524419a53cc18503dabfbc21e28b9a0c4057415a3fff161b8cfd9d1f6",
+    "build.log.gz": "da63ee3e175713ec4660ad4343fbc376c9408888174d0d8126ecab0315e77be5",
+    "holdout-deterministic-only.json.gz": "362c379d41eee107b6a17ba3be30c2a9fb14a345347dad8c6b751d0cdf1b2808",
+    "format-check.log.gz": "d0d41cd4f69386a7100367fb08561ec09a2639e0c6b252e1e6e8747e1e6e162c",
+    "development-deterministic-only.json.gz": "3b834f399e473b951ea5e24e7c7c5cfc063150cd93e21d5dbf6ffe2e2474c6be",
+    "development-mock-semantic.json.gz": "182bbc806d7396238093f4bafe255cec7fc960f81971929fb478320523979fcb",
+    "holdout-direct.json.gz": "30cb7379829e35e26033e738c821fb46b294b75a49e7126a2bf3fd247ae64467",
+    "reliability.json.gz": "6f9a4fac83120f0cb180e2ca36dfe95dc081fac431efecaa698c7c55a993a9b5",
+    "demo-client.log.gz": "6263b9bbec1b98dbdc0bd7633136c3a752a0755e7da7d142069a553ba2d035cb",
+    "summary.json.gz": "9332b25293b776c81d5b12be3cb0c567af99f16347ac2ed675ce4dce4a86bdf9",
+    "holdout-mock-semantic.json.gz": "2c005c662feaa0136b54ba1be7f0f05794032857243c87f8fcd89882de080798",
+    "test-all.log.gz": "4b07e8fec49e35a9de2579684423f02ac8d4b542aa40cbd55bf010467c4473cb",
+    "security-eval-typecheck.log.gz": "0640f4eab196cc6236cc2a4d71142554dce043537d1faa8fd94aec74fdc7a2ca",
+    "lint.log.gz": "8d74547284ba35a8de2dbd18180df383e913b867d3152581dec58761e805a2ce"
+  },
+  "actualPaidCalls": 0,
+  "noPolicyChangesAfterFirstHoldout": true,
+  "postHoldoutChanges": "Evaluator recovery-counter correction and true sequential reconnection; manually gated live runner unknown-usage handling. Frozen expected results unchanged.",
+  "stdioRegressionBarrierCommit": "7d8e7f13fa2493eab775c1be5899a551de2b3efb",
+  "finalGateSourceCommit": "7d8e7f13fa2493eab775c1be5899a551de2b3efb"
+}
