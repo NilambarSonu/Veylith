@@ -180,21 +180,23 @@ const httpServer = createServer(async (req, res) => {
   }
 });
 
-httpServer.listen(PORT, HOST, () => {
-  console.log(`[benign-mcp-server] Listening on http://${HOST}:${PORT}/mcp`);
-});
-
-// Graceful shutdown
-const shutdown = () => {
-  console.log('[benign-mcp-server] Shutting down...');
-  handler.close();
-  httpServer.close(() => {
-    console.log('[benign-mcp-server] Closed.');
-    process.exit(0);
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  httpServer.listen(PORT, HOST, () => {
+    console.log(`[benign-mcp-server] Listening on http://${HOST}:${PORT}/mcp`);
   });
-};
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+  // Graceful shutdown
+  const shutdown = () => {
+    console.log('[benign-mcp-server] Shutting down...');
+    handler.close();
+    httpServer.close(() => {
+      console.log('[benign-mcp-server] Closed.');
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
 
 export { createBenignServer };

@@ -9,6 +9,9 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "bin": {
+    "veylith-stdio": "./bin/veylith-stdio.js"
+  },
   "scripts": {
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
@@ -23,6 +26,8 @@
     "benchmark": "tsx scripts/benchmark-suite.ts",
     "validate:live": "tsx scripts/live-validation-runner.ts",
     "eval:holdout": "vitest run tests/integration/holdout-evaluation.test.ts",
+    "stdio": "tsx apps/stdio-adapter/src/index.ts",
+    "demo:client": "tsx scripts/demo-real-client.ts",
     "dev": "echo 'See docs/development/local-setup.md for multi-process dev instructions'",
     "clean": "pnpm -r run clean && rm -rf node_modules"
   },

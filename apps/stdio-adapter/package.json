@@ -1,0 +1,27 @@
+{
+  "name": "@veylith/stdio-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "veylith-stdio": "./dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@modelcontextprotocol/server": "^2.4.0",
+    "@veylith/core": "workspace:*",
+    "@veylith/meta-adapter": "workspace:*",
+    "@veylith/policy-engine": "workspace:*",
+    "zod": "^4.2.0"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  }
+}
