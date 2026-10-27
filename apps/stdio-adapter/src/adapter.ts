@@ -256,7 +256,7 @@ export class VeylithStdioAdapter {
       // ----------------------------------------------------
       let tools: readonly { name: string; description?: string; inputSchema?: unknown }[] = [];
       try {
-        const toolsResult = await upstreamClient.listTools();
+        const toolsResult = await upstreamClient.listTools(undefined, { cacheMode: 'refresh' });
         tools = toolsResult.tools;
       } catch {
         // Upstream does not support tools or error
@@ -328,10 +328,14 @@ export class VeylithStdioAdapter {
       // 2. RESOURCE DISCOVERY & REGISTRATION
       // ----------------------------------------------------
       try {
-        const { resources } = await upstreamClient.listResources();
-        const templatesRes = await upstreamClient.listResourceTemplates().catch(() => ({
-          resourceTemplates: [],
-        }));
+        const { resources } = await upstreamClient.listResources(undefined, {
+          cacheMode: 'refresh',
+        });
+        const templatesRes = await upstreamClient
+          .listResourceTemplates(undefined, { cacheMode: 'refresh' })
+          .catch(() => ({
+            resourceTemplates: [],
+          }));
         const templates = templatesRes.resourceTemplates ?? [];
 
         const resourceList: Array<{
@@ -402,7 +406,7 @@ export class VeylithStdioAdapter {
       // 3. PROMPT DISCOVERY & REGISTRATION
       // ----------------------------------------------------
       try {
-        const { prompts } = await upstreamClient.listPrompts();
+        const { prompts } = await upstreamClient.listPrompts(undefined, { cacheMode: 'refresh' });
         const promptList: Array<{
           name: string;
           description?: string;
@@ -582,9 +586,9 @@ export class VeylithStdioAdapter {
     }
 
     try {
-      const current = (await forwardClient.listTools(undefined, { signal })).tools.find(
-        (t) => t.name === toolName,
-      );
+      const current = (
+        await forwardClient.listTools(undefined, { signal, cacheMode: 'refresh' })
+      ).tools.find((t) => t.name === toolName);
       if (!current)
         return {
           content: [{ type: 'text', text: 'Veylith policy blocked this call: tool disappeared' }],
@@ -728,7 +732,7 @@ export class VeylithStdioAdapter {
           !this.sessionManager.isResourceAuthorized(this.config.sessionId, uri, serverId))
       )
         throw new Error('Resource authorization expired before forwarding');
-      const rawResult = await forwardClient.readResource({ uri }, { signal });
+      const rawResult = await forwardClient.readResource({ uri }, { signal, cacheMode: 'refresh' });
 
       if (this.mode === 'standalone' && this.securityEngine) {
         const ctx: InspectionContext = {

@@ -172,23 +172,27 @@ export const handler = createMcpHandler(
       try {
         upstreamClient = await upstreamCircuitBreaker.execute(() => createUpstreamClient());
         try {
-          const toolsResult = await upstreamClient.listTools();
+          const toolsResult = await upstreamClient.listTools(undefined, { cacheMode: 'refresh' });
           fetchedTools = toolsResult.tools;
         } catch {
           // Upstream does not support tools or error
         }
         try {
-          const { resources } = await upstreamClient.listResources();
+          const { resources } = await upstreamClient.listResources(undefined, {
+            cacheMode: 'refresh',
+          });
           fetchedResources = (resources as unknown as ResourceContentItem[]) ?? [];
-          const templatesRes = await upstreamClient.listResourceTemplates().catch(() => ({
-            resourceTemplates: [],
-          }));
+          const templatesRes = await upstreamClient
+            .listResourceTemplates(undefined, { cacheMode: 'refresh' })
+            .catch(() => ({
+              resourceTemplates: [],
+            }));
           fetchedTemplates = templatesRes.resourceTemplates ?? [];
         } catch {
           // Upstream does not support resources or empty
         }
         try {
-          const { prompts } = await upstreamClient.listPrompts();
+          const { prompts } = await upstreamClient.listPrompts(undefined, { cacheMode: 'refresh' });
           fetchedPrompts = (prompts as unknown as typeof fetchedPrompts) ?? [];
         } catch {
           // Upstream does not support prompts or empty
@@ -331,7 +335,10 @@ export const handler = createMcpHandler(
                 // MCP has no atomic definition-version + invocation primitive: server-side
                 // behavior changes after this check remain a documented residual race.
                 const current = (
-                  await forwardClient.listTools(undefined, { signal: extra.mcpReq.signal })
+                  await forwardClient.listTools(undefined, {
+                    signal: extra.mcpReq.signal,
+                    cacheMode: 'refresh',
+                  })
                 ).tools.find((t) => t.name === toolName);
                 if (!current)
                   return {
@@ -515,7 +522,10 @@ export const handler = createMcpHandler(
               )
                 throw new Error('Resource authorization expired before forwarding');
               const rawResult = await upstreamCircuitBreaker.execute(() =>
-                forwardClient.readResource({ uri: uri.href }, { signal: extra.mcpReq.signal }),
+                forwardClient.readResource(
+                  { uri: uri.href },
+                  { signal: extra.mcpReq.signal, cacheMode: 'refresh' },
+                ),
               );
               const ctx: InspectionContext = {
                 requestId,
