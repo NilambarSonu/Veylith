@@ -6,6 +6,8 @@
  */
 
 import type { MetaAiMode } from '@veylith/meta-adapter';
+import type { TrustedToolBinding } from '@veylith/policy-engine';
+import type { ToolCapability } from '@veylith/core';
 
 export interface GatewayConfig {
   readonly host: string;
@@ -20,6 +22,7 @@ export interface GatewayConfig {
   readonly metaApiKey?: string;
   readonly metaModel: string;
   readonly failClosed: boolean;
+  readonly capabilityBindings: readonly TrustedToolBinding[];
 }
 
 export function loadConfig(): GatewayConfig {
@@ -51,6 +54,37 @@ export function loadConfig(): GatewayConfig {
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
 
+  const rawToolCapabilities = process.env['TOOL_CAPABILITIES'];
+  const capabilityBindings: TrustedToolBinding[] = [];
+  if (rawToolCapabilities) {
+    try {
+      if (rawToolCapabilities.trim().startsWith('[')) {
+        const parsed = JSON.parse(rawToolCapabilities) as TrustedToolBinding[];
+        capabilityBindings.push(...parsed);
+      } else {
+        const entries = rawToolCapabilities
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        for (const entry of entries) {
+          const parts = entry.split(':').map((s) => s.trim());
+          if (parts.length >= 2) {
+            const toolName = parts[0]!;
+            const cap = parts[1]! as ToolCapability;
+            const sId = parts.length > 2 ? parts.slice(2).join(':') : upstreamMcpUrl;
+            capabilityBindings.push({
+              serverId: sId,
+              toolName,
+              capability: cap,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[config] Failed to parse TOOL_CAPABILITIES: ${e}`);
+    }
+  }
+
   return {
     host,
     port,
@@ -64,5 +98,6 @@ export function loadConfig(): GatewayConfig {
     metaApiKey,
     metaModel,
     failClosed,
+    capabilityBindings,
   };
 }

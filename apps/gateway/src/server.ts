@@ -48,6 +48,7 @@ const metaAdapter = new MetaMuseSecurityAdapter({
 const securityEngine = new SecurityInspectionEngine(policyRules, metaAdapter, {
   failClosed: config.failClosed,
   policyVersion: 'v1.0.0',
+  capabilityBindings: config.capabilityBindings,
 });
 
 /**

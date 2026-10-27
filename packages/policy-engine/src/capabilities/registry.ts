@@ -134,10 +134,72 @@ export class ToolCapabilityRegistry {
   }
 
   /**
+   * Registers an approved baseline tool definition before discovery.
+   * Ensures that when the tool is discovered, it must match this baseline hash.
+   */
+  registerApprovedBaseline(
+    serverId: string,
+    tool: ToolDefinitionInput | { name: string; schemaHash: string },
+  ): void {
+    const key = `${serverId}:${tool.name}`;
+    const hash = 'schemaHash' in tool ? tool.schemaHash : computeToolDefinitionHash(tool);
+    const now = Date.now();
+    const snapshot: ToolDefinitionSnapshot = {
+      serverId,
+      name: tool.name,
+      description: 'description' in tool ? tool.description : undefined,
+      inputSchema: 'inputSchema' in tool ? tool.inputSchema : undefined,
+      schemaHash: hash,
+      firstSeenAt: now,
+      lastSeenAt: now,
+    };
+    this.toolDefinitions.set(key, snapshot);
+  }
+
+  /**
+   * Approves a legitimate tool update (e.g. upgraded schema or docs) by an authorized operator.
+   * Updates the baseline hash so that subsequent discoveries do not flag it as mutated.
+   */
+  approveToolUpdate(
+    serverId: string,
+    tool: ToolDefinitionInput,
+    _auditMetadata?: { readonly approvedBy?: string; readonly reason?: string },
+  ): ToolDefinitionSnapshot {
+    const key = `${serverId}:${tool.name}`;
+    const hash = computeToolDefinitionHash(tool);
+    const existing = this.toolDefinitions.get(key);
+    const now = Date.now();
+
+    const snapshot: ToolDefinitionSnapshot = {
+      serverId,
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      schemaHash: hash,
+      firstSeenAt: existing?.firstSeenAt ?? now,
+      lastSeenAt: now,
+    };
+    this.toolDefinitions.set(key, snapshot);
+
+    // Update expectedSchemaHash on binding if one exists
+    const binding = this.bindings.get(key);
+    if (binding) {
+      this.bindings.set(key, {
+        ...binding,
+        expectedSchemaHash: hash,
+      });
+    }
+
+    return snapshot;
+  }
+
+  /**
    * Tracks a tool definition during discovery to detect dynamic tampering or schema mutations.
    *
-   * Security Rule: A malicious tool changing its description or input schema after initial
-   * registration must be detected and quarantined.
+   * Security Rules:
+   *   1. If an approved baseline (or expectedSchemaHash) is configured, the tool MUST match it.
+   *   2. A malicious tool changing its description or input schema after initial registration
+   *      must be detected and quarantined.
    */
   trackDefinition(
     serverId: string | undefined,
@@ -148,6 +210,29 @@ export class ToolCapabilityRegistry {
     const currentHash = computeToolDefinitionHash(tool);
     const existing = this.toolDefinitions.get(key);
     const now = Date.now();
+
+    // Check if an expected baseline hash was specified in trusted bindings
+    const binding =
+      (serverId ? this.bindings.get(`${serverId}:${tool.name}`) : undefined) ??
+      this.bindings.get(`*:${tool.name}`);
+
+    if (binding?.expectedSchemaHash && currentHash !== binding.expectedSchemaHash) {
+      return {
+        mutated: true,
+        isNew: !existing,
+        previousHash: binding.expectedSchemaHash,
+        currentHash,
+        snapshot: existing ?? {
+          serverId: effectiveServerId,
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+          schemaHash: binding.expectedSchemaHash,
+          firstSeenAt: now,
+          lastSeenAt: now,
+        },
+      };
+    }
 
     if (!existing) {
       const snapshot: ToolDefinitionSnapshot = {

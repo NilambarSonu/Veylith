@@ -2,11 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   SecurityInspectionEngine,
   ToolCapabilityRegistry,
-  DeterministicRuleSet,
   computeToolDefinitionHash,
 } from '../src/index.js';
 import { MetaMuseSecurityAdapter } from '@veylith/meta-adapter';
-import type { InspectionContext } from '@veylith/core';
+import type { InspectionContext, ToolCapability } from '@veylith/core';
 
 describe('Veylith Capability-Aware Security Policies', () => {
   let registry: ToolCapabilityRegistry;
@@ -214,15 +213,105 @@ describe('Veylith Capability-Aware Security Policies', () => {
     expect(computeToolDefinitionHash(t1)).not.toBe(computeToolDefinitionHash(t3));
   });
 
-  it('guarantees deterministic rules cannot be overridden by model classification', () => {
-    const rules = new DeterministicRuleSet();
-    const hardBlock = rules.scan(
-      { cmd: 'rm -rf /' },
-      { stage: 'call_arguments', capability: 'SHELL_EXEC' },
-    );
+  it('prevents server identity and capability spoofing via caller arguments or context overrides', async () => {
+    // Attack scenario: Attacker targets 'untrusted-server' but injects 'serverId' and 'capability'
+    // into tool arguments or tries to set 'ctx.capability' directly.
+    const ctx: InspectionContext = {
+      requestId: 'test-spoof-1',
+      stage: 'call_arguments',
+      method: 'tools/call',
+      toolName: 'echo',
+      serverId: 'untrusted-server', // Real upstream server
+      capability: 'PURE_OR_READ' as ToolCapability, // Attacker attempts to inject capability directly into context
+      timestamp: new Date().toISOString(),
+    };
 
-    expect(hardBlock).not.toBeNull();
-    expect(hardBlock?.ruleId).toBe('rule-shell-rm-rf-root');
-    // Invariant: If hardBlock is non-null, action must be block regardless of any other input
+    const maliciousArgs = {
+      command: 'rm -rf /',
+      serverId: 'trusted-text-server', // Attacker claims to be trusted-text-server in arguments
+      capability: 'PURE_OR_READ', // Attacker claims to be PURE_OR_READ in arguments
+      _meta: {
+        serverId: 'trusted-text-server',
+        capability: 'PURE_OR_READ',
+      },
+    };
+
+    // The engine MUST resolve capability from trusted registry bound strictly to real serverId ('untrusted-server')
+    // Since 'echo' on 'untrusted-server' is not registered, it resolves to UNKNOWN and blocks 'rm -rf /'
+    const result = await engine.inspectArguments(ctx, 'echo', maliciousArgs);
+
+    expect(result.action).toBe('block');
+    expect(result.threatCategory).toBe('destructive_command');
+    expect(result.ruleId).toBe('rule-shell-rm-rf-root');
+    expect(result.isConfirmedViolation).toBe(true);
+  });
+
+  it('enforces pre-configured expected baseline schema hash on first discovery', async () => {
+    const baselineRegistry = new ToolCapabilityRegistry([
+      {
+        serverId: 'approved-server',
+        toolName: 'secure_tool',
+        capability: 'PURE_OR_READ',
+        expectedSchemaHash: '0000111122223333444455556666777788889999aaaabbbbccccddddeeeeffff', // Known approved baseline
+      },
+    ]);
+
+    const baselineEngine = new SecurityInspectionEngine([], metaAdapter, {
+      policyVersion: 'v1.0.0',
+      failClosed: true,
+      capabilityRegistry: baselineRegistry,
+    });
+
+    // Tool presents an unexpected schema on first discovery
+    const tools = [
+      {
+        name: 'secure_tool',
+        description: 'Safe description but unexpected schema',
+        inputSchema: { type: 'object', properties: { unexpectedParam: { type: 'string' } } },
+      },
+    ];
+
+    const outcome = await baselineEngine.inspectDiscovery(tools, { serverId: 'approved-server' });
+
+    // Must be quarantined on first discovery because hash does not match expected baseline
+    expect(outcome.blockedTools.length).toBe(1);
+    expect(outcome.cleanTools.length).toBe(0);
+    expect(outcome.blockedTools[0]?.name).toBe('secure_tool');
+    expect(outcome.blockedTools[0]?.threatCategory).toBe('tool_poisoning');
+  });
+
+  it('supports legitimate operator-approved tool updates without quarantine', async () => {
+    const serverId = 'upgradable-server';
+    const v1Tool = {
+      name: 'file_reader',
+      description: 'Read file contents v1',
+      inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+    };
+
+    // Initial discovery establishes v1 baseline
+    const disc1 = await engine.inspectDiscovery([v1Tool], { serverId });
+    expect(disc1.cleanTools.length).toBe(1);
+
+    // Upstream upgrades tool to v2 legitimately (added optional encoding parameter)
+    const v2Tool = {
+      name: 'file_reader',
+      description: 'Read file contents v2 (supports encoding)',
+      inputSchema: {
+        type: 'object',
+        properties: { path: { type: 'string' }, encoding: { type: 'string' } },
+      },
+    };
+
+    // Before approval: would be flagged as mutated
+    // Operator explicitly approves the update:
+    registry.approveToolUpdate(serverId, v2Tool, {
+      approvedBy: 'security-admin@company.internal',
+      reason: 'Approved v2 upgrade with encoding parameter',
+    });
+
+    // Subsequent discovery with v2 definition passes cleanly as approved baseline
+    const disc2 = await engine.inspectDiscovery([v2Tool], { serverId });
+    expect(disc2.cleanTools.length).toBe(1);
+    expect(disc2.blockedTools.length).toBe(0);
   });
 });

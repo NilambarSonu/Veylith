@@ -46,10 +46,16 @@ export class StdioLogger {
   private readonly minLevel: number;
   private readonly redact: boolean;
   private readonly knownSecretValues: Set<string>;
+  private readonly stream: { write: (str: string) => boolean | void };
 
-  constructor(level: string = 'info', redact: boolean = true) {
+  constructor(
+    level: string = 'info',
+    redact: boolean = true,
+    stream: { write: (str: string) => boolean | void } = process.stderr,
+  ) {
     this.minLevel = LEVEL_ORDER[level as LogLevel] ?? LEVEL_ORDER.info;
     this.redact = redact;
+    this.stream = stream;
     this.knownSecretValues = new Set<string>();
 
     // Register active process secrets to redact if present
@@ -99,7 +105,7 @@ export class StdioLogger {
     }
 
     // MANDATORY: write strictly to stderr so stdout JSON-RPC stream remains uncorrupted
-    process.stderr.write(`${JSON.stringify(entry)}\n`);
+    this.stream.write(`${JSON.stringify(entry)}\n`);
   }
 
   private scrubText(text: string): string {
@@ -116,7 +122,11 @@ export class StdioLogger {
   private redactSensitive(obj: Record<string, unknown>): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj)) {
-      if (REDACTED_KEYS.has(key.toLowerCase())) {
+      const lowerKey = key.toLowerCase();
+      if (
+        REDACTED_KEYS.has(lowerKey) ||
+        /(?:api[_-]?key|secret|token|password|auth|credential|private[_-]?key)/i.test(lowerKey)
+      ) {
         result[key] = '[REDACTED]';
       } else if (typeof value === 'string') {
         result[key] = this.scrubText(value);

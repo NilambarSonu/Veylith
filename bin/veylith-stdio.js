@@ -22,7 +22,8 @@ const tsxCli = join(__dirname, '../node_modules/tsx/dist/cli.mjs');
 let childArgs = [];
 
 if (existsSync(standaloneBundle)) {
-  // Production standalone bundle: runs with pure Node, zero devDependencies required
+  // Bundled development artifact: runs with pure Node (>=20), inlines workspace packages,
+  // resolves external MCP SDK dependencies from environment node_modules (zero devDependencies required)
   childArgs = [standaloneBundle, ...process.argv.slice(2)];
 } else if (existsSync(tsxCli)) {
   // Development fallback: runs TypeScript source via local tsx

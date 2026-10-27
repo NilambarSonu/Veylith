@@ -318,9 +318,9 @@ export class SecurityInspectionEngine {
       };
     }
 
-    // Resolve tool capability from context or trusted registry
-    const capability =
-      ctx.capability ?? this.capabilityRegistry.resolveCapability(ctx.serverId, toolName);
+    // Resolve tool capability strictly from trusted registry bound to serverId
+    // Security Rule: Never trust caller-provided context capability to elevate permissions beyond trusted registry
+    const capability = this.capabilityRegistry.resolveCapability(ctx.serverId, toolName);
 
     // Tier 1 & 2: Screen arguments (capability-aware)
     const screenVerdict = this.screener.screen(args, {

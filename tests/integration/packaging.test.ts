@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { existsSync, readFileSync, mkdtempSync, copyFileSync, rmSync } from 'node:fs';
+import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../..');
@@ -36,17 +38,52 @@ describe('Veylith Packaging & Portability Verification', () => {
     // Therefore, this artifact is a "bundled development artifact", not a self-contained zero-dependency binary.
   });
 
-  it('verifies the multi-tier execution fallback logic in bin/veylith-stdio.js', () => {
-    const launcherPath = resolve(repoRoot, 'bin/veylith-stdio.js');
-    expect(existsSync(launcherPath)).toBe(true);
+  it('verifies launcher runs cleanly when executed from a clean external working directory', () => {
+    if (!existsSync(standaloneBundlePath)) return;
 
-    const launcherContent = readFileSync(launcherPath, 'utf8');
-    // Resolution order:
-    // 1. standaloneBundle (dist/standalone.mjs) via pure Node
-    // 2. tsx development fallback
-    // 3. experimental-strip-types fallback
-    expect(launcherContent).toContain('standaloneBundle');
-    expect(launcherContent).toContain('tsxCli');
-    expect(launcherContent).toContain('--experimental-strip-types');
+    const cleanDir = mkdtempSync(join(tmpdir(), 'veylith-clean-test-'));
+
+    try {
+      // Execute the bundle with a clean working directory (simulating an external client running veylith-stdio)
+      const res = spawnSync(process.execPath, [standaloneBundlePath], {
+        cwd: cleanDir,
+        input: '', // immediate EOF
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+
+      // Stderr must contain structured JSON logs
+      expect(res.stderr).toContain('veylith-stdio');
+      expect(res.stderr).toContain('Starting Veylith stdio adapter');
+      expect(res.status).toBe(0);
+    } finally {
+      rmSync(cleanDir, { recursive: true, force: true });
+    }
+  });
+
+  it('verifies that copying the bundle into an isolated directory without node_modules fails with ERR_MODULE_NOT_FOUND', () => {
+    if (!existsSync(standaloneBundlePath)) return;
+
+    const isolatedDir = mkdtempSync(join(tmpdir(), 'veylith-isolated-'));
+
+    try {
+      const isolatedBundle = join(isolatedDir, 'standalone.mjs');
+      copyFileSync(standaloneBundlePath, isolatedBundle);
+
+      // Attempting to run the isolated bundle in a directory without node_modules MUST fail
+      // proving that the artifact is a bundled development artifact, not an all-in-one standalone binary
+      const res = spawnSync(process.execPath, [isolatedBundle], {
+        cwd: isolatedDir,
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+
+      expect(res.status).not.toBe(0);
+      expect(res.stderr).toMatch(
+        /ERR_MODULE_NOT_FOUND|Cannot find package '@modelcontextprotocol\/server'/,
+      );
+    } finally {
+      rmSync(isolatedDir, { recursive: true, force: true });
+    }
   });
 });
