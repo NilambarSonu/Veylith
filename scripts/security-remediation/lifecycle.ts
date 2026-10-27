@@ -12,8 +12,10 @@ import { Fixture } from '../security-lab/fixture.js';
 import type { LabCase } from '../security-lab/types.js';
 const output = 'security-lab/phase-2f/after';
 mkdirSync(output, { recursive: true });
-const cycles = 100,
-  callsPerCycle = 20;
+const cycles = Number(process.env['VEYLITH_LIFECYCLE_CYCLES'] ?? 100);
+if (!Number.isSafeInteger(cycles) || cycles < 20 || cycles > 2000)
+  throw new Error('VEYLITH_LIFECYCLE_CYCLES must be an integer between 20 and 2000');
+const callsPerCycle = 20;
 const nativeFetch = globalThis.fetch;
 globalThis.fetch = (input, init) => {
   const url = new URL(
@@ -166,6 +168,7 @@ const growth = (rows: Array<Record<string, unknown>>, warmup: number) => ({
 });
 const result = {
   sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+  workingTree: execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim(),
   cycles,
   callsPerCycle,
   actualPaidCalls: 0,
@@ -177,7 +180,7 @@ const result = {
     node: process.version,
   },
   componentMs,
-  componentOperations: 100000,
+  componentOperations: cycles * 1000,
   componentGrowth: growth(component, 10),
   httpMs,
   mcpCalls: latency.length,
