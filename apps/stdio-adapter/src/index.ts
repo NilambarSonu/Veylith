@@ -6,7 +6,7 @@
  *
  * Usage:
  *   # Gateway Bridge Mode (connects to running Veylith Gateway):
- *   veylith-stdio --gateway-url http://127.0.0.1:3000/mcp
+ *   veylith-stdio --gateway-url http://127.0.0.1:8787/mcp
  *
  *   # Standalone Command Mode (runs security engine in-process and wraps upstream command):
  *   veylith-stdio -- npx -y @modelcontextprotocol/server-filesystem /tmp
@@ -28,7 +28,7 @@ USAGE:
 MODES:
   1. Gateway Bridge (Default)
      Bridges downstream stdio to an existing Veylith HTTP Gateway.
-     Example: veylith-stdio --gateway-url http://127.0.0.1:3000/mcp
+     Example: veylith-stdio --gateway-url http://127.0.0.1:8787/mcp
 
   2. Standalone Subprocess
      Runs the Veylith 3-stage security inspection in-process and wraps an upstream tool command.
@@ -39,7 +39,7 @@ MODES:
      Example: veylith-stdio --upstream-url http://127.0.0.1:8788/mcp
 
 OPTIONS:
-  --gateway-url <url>      URL of Veylith Gateway (default: http://127.0.0.1:3000/mcp)
+  --gateway-url <url>      URL of Veylith Gateway (default: http://127.0.0.1:8787/mcp)
   --upstream-url <url>     URL of upstream MCP HTTP server (standalone mode)
   --command <cmd>          Executable command for upstream MCP server (standalone mode)
   --args <args>            Comma-separated arguments for upstream command
@@ -62,7 +62,7 @@ ENVIRONMENT VARIABLES:
 
 function parseArgs(argv: string[]): StdioAdapterConfig {
   const config: StdioAdapterConfig = {
-    gatewayUrl: process.env['VEYLITH_GATEWAY_URL'] ?? 'http://127.0.0.1:3000/mcp',
+    gatewayUrl: process.env['VEYLITH_GATEWAY_URL'] ?? 'http://127.0.0.1:8787/mcp',
     upstreamUrl: process.env['UPSTREAM_MCP_URL'],
     upstreamCommand: process.env['UPSTREAM_COMMAND'],
     blockedTools: process.env['BLOCKED_TOOLS']

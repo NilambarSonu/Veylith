@@ -55,7 +55,7 @@ Run the Veylith Gateway daemon locally (`pnpm start` or docker), then configure 
       "args": [
         "/Users/nilambarbehera/Documents/Projects/veylith/bin/veylith-stdio.js",
         "--gateway-url",
-        "http://127.0.0.1:3000/mcp"
+        "http://127.0.0.1:8787/mcp"
       ],
       "env": {
         "LOG_LEVEL": "info"
@@ -113,7 +113,7 @@ Cursor supports MCP servers configured via workspace or global configuration.
       "args": [
         "/Users/nilambarbehera/Documents/Projects/veylith/bin/veylith-stdio.js",
         "--gateway-url",
-        "http://127.0.0.1:3000/mcp"
+        "http://127.0.0.1:8787/mcp"
       ]
     }
   }
@@ -160,13 +160,92 @@ This verifies the three core workflows:
 
 ---
 
-## 5. Manual Founder Verification Checklist
+---
 
-For founder manual testing in Claude Desktop or Cursor GUI:
+## 5. Manual Founder Verification Checklist (Claude Desktop & Cursor GUI)
 
-- [ ] **Config Check**: Add the configuration block above to `claude_desktop_config.json` or `.cursor/mcp.json`.
-- [ ] **Restart Client**: Fully quit and restart Claude Desktop / Cursor.
-- [ ] **Discovery Check**: Ask the assistant "What MCP tools are available?". Verify that `echo` and `add` are listed, while `poisoned_discovery_tool` is absent.
-- [ ] **Normal Execution Check**: Ask "Echo 'hello Veylith'". Verify the response is received.
-- [ ] **Policy Enforcement Check**: Ask "Execute tool echo with argument rm -rf /". Verify the assistant receives the policy block message and does not execute.
-- [ ] **Status**: _Pending Founder Manual GUI Test_. Automated headless stdio tests verified and passing.
+> **Interoperability Status Note:**  
+> The official MCP SDK client (`@modelcontextprotocol/client`) is **Fully Verified (Automated)** across all 11 lifecycle and security scenarios.  
+> Claude Desktop and Cursor are labeled **Pending Founder GUI Test** until manually exercised by the founder in a live desktop GUI session.
+
+If Claude Desktop or Cursor is installed on your workstation, follow this exact step-by-step verification checklist:
+
+### 5.1 Prerequisites & Preparation
+
+1. **Build the Standalone Adapter:**
+
+   ```bash
+   pnpm build
+   ```
+
+   Ensure `apps/stdio-adapter/dist/standalone.mjs` is generated.
+
+2. **Start the Test Server & Gateway (Gateway Bridge Mode):**
+   - **Terminal 1 (Benign Server):**
+
+     ```bash
+     pnpm tsx examples/benign-mcp-server/src/index.ts
+     ```
+
+     (Server starts on `http://127.0.0.1:8788/mcp`)
+
+   - **Terminal 2 (Veylith Gateway):**
+     ```bash
+     UPSTREAM_MCP_URL=http://127.0.0.1:8788/mcp \
+     BLOCKED_TOOLS=restricted_demo_tool \
+     pnpm tsx apps/gateway/src/server.ts
+     ```
+     (Gateway starts on `http://127.0.0.1:8787/mcp`)
+
+3. **Install Client Configuration:**
+   - **For Claude Desktop:**
+     Open `~/Library/Application Support/Claude/claude_desktop_config.json` and insert:
+     ```json
+     {
+       "mcpServers": {
+         "veylith": {
+           "command": "node",
+           "args": [
+             "/Users/nilambarbehera/Documents/Projects/veylith/bin/veylith-stdio.js",
+             "--gateway-url",
+             "http://127.0.0.1:8787/mcp"
+           ],
+           "env": {
+             "LOG_LEVEL": "info"
+           }
+         }
+       }
+     }
+     ```
+   - **For Cursor:**
+     Create or edit `.cursor/mcp.json` in your workspace:
+     ```json
+     {
+       "mcpServers": {
+         "veylith": {
+           "command": "node",
+           "args": [
+             "/Users/nilambarbehera/Documents/Projects/veylith/bin/veylith-stdio.js",
+             "--gateway-url",
+             "http://127.0.0.1:8787/mcp"
+           ]
+         }
+       }
+     }
+     ```
+
+4. **Restart the Client:**
+   Fully quit and restart Claude Desktop or Cursor to reload MCP server configurations.
+
+---
+
+### 5.2 Step-by-Step Interactive Test Protocol
+
+| Test #    | Test Name                          | User Prompt in GUI Client                                              | Expected Client GUI Behavior                                                                                                                                                                                                                 | Verified |
+| :-------- | :--------------------------------- | :--------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------- |
+| **GUI-1** | **Stage 1: Tool Discovery**        | _"What tools are available?"_                                          | Assistant lists `echo`, `add`, and `simulate_untrusted_source`. `poisoned_discovery_tool` is completely omitted from the tool list.                                                                                                          | [ ]      |
+| **GUI-2** | **Stage 2: Benign Tool Call**      | _"Use tool echo with message 'Hello Veylith'"_                         | Tool executes successfully; assistant responds with `'Echo: Hello Veylith'`.                                                                                                                                                                 | [ ]      |
+| **GUI-3** | **Stage 2: Policy Blocklist**      | _"Call restricted_demo_tool with reason 'test'"_                       | Call is blocked. Assistant receives `isError: true` and explains that the tool is administratively blocked by policy, without client error or crash.                                                                                         | [ ]      |
+| **GUI-4** | **Stage 2: Argument Scanner**      | _"Execute tool echo with message 'rm -rf /'"_                          | Call is blocked by Tier 1 invariant with message explaining dangerous filesystem deletion. _(Note: See `docs/security/capability-audit.md` for discussion of false positives on pure echo tools vs shell tools)._                            | [ ]      |
+| **GUI-5** | **Stage 3: Response Sanitization** | _"Fetch data using simulate_untrusted_source with query 'financials'"_ | Upstream returns indirect prompt injection, but Veylith sanitizes the response. Assistant receives `[Veylith Security Notice: Response contained untrusted instruction overrides...]` and refuses to follow malicious injected instructions. | [ ]      |
+| **GUI-6** | **Process Lifecycle & Disconnect** | _Quit Claude Desktop / Cursor_                                         | Verify in Activity Monitor or terminal (`ps aux \| grep veylith`) that `veylith-stdio` and child processes terminated cleanly with exit code 0 on stdin EOF.                                                                                 | [ ]      |

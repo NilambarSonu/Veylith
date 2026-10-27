@@ -29,7 +29,7 @@ Veylith acts as an inline security boundary between downstream MCP clients (such
 
 - **Status:** **Supported (Gateway Default)**
 - **Mechanics:**
-  - Standard HTTP server listening on configured host and port (default: `127.0.0.1:3000/mcp`).
+  - Standard HTTP server listening on configured host and port (default: `127.0.0.1:8787/mcp`).
   - Supports `POST` (JSON-RPC requests/notifications) and `GET` (stream connection/discovery).
   - Handles HTTP headers (`Accept: application/json, text/event-stream`, `Content-Type: application/json`).
   - Implements response streaming via Web Standard `ReadableStream` reader pump to Node.js `http.ServerResponse`, preventing infinite buffer accumulation.
@@ -185,11 +185,90 @@ Veylith adheres strictly to MCP and JSON-RPC 2.0 error specifications:
 
 ---
 
-## 4. Real-Client Compatibility Matrix
+### 3.9 Process Isolation, Subprocess Permissions, Environment Forwarding & Disconnect Lifecycle
 
-| Client                  | Transport  | Support Status | Configuration Mechanism                                           | Notes                                                 |
-| :---------------------- | :--------- | :------------- | :---------------------------------------------------------------- | :---------------------------------------------------- |
-| **Claude Desktop**      | stdio      | **Compatible** | `~/Library/Application Support/Claude/claude_desktop_config.json` | Tested with `veylith-stdio` executable                |
-| **Cursor**              | stdio      | **Compatible** | `~/.cursor/mcp.json` or `.cursor/mcp.json`                        | Tested with `veylith-stdio` executable                |
-| **Official MCP Client** | stdio/HTTP | **Compatible** | `@modelcontextprotocol/client` (v2.4.0)                           | Used for automated integration and regression testing |
-| **Windsurf / Cline**    | stdio      | **Compatible** | Standard MCP stdio configuration block                            | Conforms to standard stdio JSON-RPC protocol          |
+The stdio transport model introduces critical security and operating system process boundaries:
+
+1. **Process Isolation & Subprocess Spawning:**
+   - When configured in standalone mode to wrap an upstream tool executable (e.g. `npx @modelcontextprotocol/server-filesystem`), Veylith spawns the upstream process using Node.js `child_process.spawn` with `shell: false`.
+   - By disabling the shell intermediary, argument parsing cannot be hijacked via command separators or metacharacters.
+   - Standard I/O streams are strictly piped: the upstream's `stdout` and `stdin` are controlled solely by Veylith's internal client transport, while the upstream's `stderr` is captured and routed to Veylith's sanitized log stream.
+
+2. **Subprocess Permissions & Command Validation (`validateCommand`):**
+   - Commands are validated before execution:
+     - Rejects any shell metacharacters in the executable name (`[;&|`$><\n\r]`).
+     - Disallows bare shell binaries (`sh`, `bash`, `zsh`, `cmd.exe`, `powershell.exe`) when combined with inline execution flags (`-c`, `/c`, `-e`).
+     - Rejects null bytes (`\0`) in any command arguments to prevent POSIX path truncation exploits.
+   - Enforces a strict read buffer limit (default: 10 MB via `DEFAULT_MAX_BUFFER_SIZE`) to prevent memory exhaustion and denial-of-service from runaway child output.
+
+3. **Environment-Variable Forwarding & Secret Scrubbing (`getSafeChildEnvironment`):**
+   - Veylith does **not** forward the host application's raw `process.env` to upstream child processes.
+   - Forwarding starts from the official MCP SDK safe baseline (`getDefaultEnvironment()`, which includes only standard OS variables like `PATH`, `HOME`, `USER`, `SHELL`, `LANG`).
+   - If user-defined environment variables are provided, Veylith scrubs and deletes all known sensitive API keys and tokens before passing the environment to the child:
+     - `META_MODEL_API_KEY`, `META_API_KEY`
+     - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
+     - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+     - `GITHUB_TOKEN`, `GH_TOKEN`, `NPM_TOKEN`
+   - Child processes are prevented from reading the host's credentials or Veylith's LLM API keys.
+
+4. **Behavior on Disconnect & Teardown Lifecycle:**
+   - **Client Disconnect (stdin EOF):** When Claude Desktop, Cursor, or a client terminates, the operating system closes the stdin pipe. The adapter detects `process.stdin.on('end')` and initiates a graceful teardown:
+     - Closes all active upstream client connections (`this.activeUpstreamClients.forEach(c => c.close())`), which sends SIGTERM to child processes.
+     - Closes the server handle.
+     - Flushes remaining log messages to stderr.
+     - Exits the process cleanly with code `0`.
+   - **Signal Handling:** Listens for `SIGINT` and `SIGTERM` to ensure upstream subprocesses are never orphaned.
+   - **Subprocess Exit:** If the upstream child process crashes or terminates unexpectedly, Veylith catches the error, logs a sanitized message to stderr, and returns `isError: true` on subsequent tool calls rather than crashing the client session.
+
+---
+
+### 3.10 Unsupported Capabilities & Explicit Protocol Behaviors
+
+Veylith currently supports the core tool execution subset of MCP (tools, initialization, cancellation, and ping). The following capabilities are unsupported in Phase 2B:
+
+| Capability                    | Phase Status         | Rationale & Gateway Behavior                                                                                                                                                                                                                                                                     |
+| :---------------------------- | :------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`resources/list` & `read`** | _Planned (Phase 2C)_ | Resources represent passive text/binary data (e.g. files, database schemas). While non-executable, retrieved resource content can contain indirect prompt injection. Resource inspection will be introduced in Phase 2C. Requests currently receive standard JSON-RPC `-32601 Method Not Found`. |
+| **`resources/subscribe`**     | _Planned (Phase 2C)_ | Push notifications for resource updates. Unsupported in Phase 2B; calls return `-32601 Method Not Found`.                                                                                                                                                                                        |
+| **`prompts/list` & `get`**    | _Planned (Phase 2C)_ | MCP Prompt templates will be supported in Phase 2C with static and semantic security scanning of prompt parameters. Unsupported in Phase 2B; calls return `-32601 Method Not Found`.                                                                                                             |
+| **`sampling/createMessage`**  | _Out of Scope_       | Server-to-client LLM sampling allows an MCP server to request LLM generations from the client. As a security perimeter, Veylith does not solicit LLM sampling from clients, as this introduces bidirectional trust inversion. If requested by an upstream server, Veylith drops the capability.  |
+| **`roots/list`**              | _Out of Scope_       | Client filesystem root boundary reporting. Not required for gateway security mediation.                                                                                                                                                                                                          |
+
+---
+
+## 4. Client Verification & Interoperability Matrix
+
+| Client / Environment                                         | Transport               | Verification Status            | Configuration Mechanism                                           | Verification Evidence & Scope                                                                                                                         |
+| :----------------------------------------------------------- | :---------------------- | :----------------------------- | :---------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Official MCP SDK Client** (`@modelcontextprotocol/client`) | stdio & Streamable HTTP | **Fully Verified (Automated)** | SDK programmatic client (`StdioClientTransport`)                  | Automated integration suite (`tests/integration/stdio-adapter.test.ts` & `scripts/demo-real-client.ts`). All 11 lifecycle scenarios passing.          |
+| **Claude Desktop**                                           | stdio                   | **Pending Founder GUI Test**   | `~/Library/Application Support/Claude/claude_desktop_config.json` | Protocol, lifecycle, and stdio launcher validated via headless SDK harness; actual GUI interactive testing pending founder execution on host machine. |
+| **Cursor**                                                   | stdio                   | **Pending Founder GUI Test**   | `.cursor/mcp.json` or `~/.cursor/mcp.json`                        | Protocol, lifecycle, and stdio launcher validated via headless SDK harness; actual GUI interactive testing pending founder execution on host machine. |
+| **Windsurf / Cline / Zed**                                   | stdio                   | **Untested (Theoretical)**     | Standard MCP stdio server entry                                   | Syntactically compliant with MCP stdio JSON-RPC 2.0 specification; no active automated or manual tests performed.                                     |
+
+---
+
+## 5. Packaging Architecture, Runtime Portability & Current Packaging Limitations
+
+### 5.1 Architecture & Standalone Bundling
+
+To enable non-developer users and GUI clients to run Veylith without requiring local TypeScript compilers (`tsx`, `ts-node`), a custom esbuild pipeline bundles the stdio adapter into a self-contained ES module:
+
+- **Source:** `apps/stdio-adapter/src/index.ts`
+- **Output:** `apps/stdio-adapter/dist/standalone.mjs` (258 KB)
+- **Inlined Modules:** `@veylith/core`, `@veylith/policy-engine`, `@veylith/meta-adapter` (all monorepo packages are compiled and bundled directly into `standalone.mjs`).
+- **External Dependencies:** Only official MCP SDK packages (`@modelcontextprotocol/server`, `@modelcontextprotocol/client`, `@modelcontextprotocol/sdk`) and Node built-in modules (`node:*`) remain as runtime imports.
+
+### 5.2 Standalone Launcher (`bin/veylith-stdio.js`)
+
+The launcher script provides multi-tier resolution:
+
+1. **Production Mode (Zero Dev Tooling):** Detects `dist/standalone.mjs` and invokes it directly using pure `node` (`process.execPath`). Runs with zero TypeScript development tools.
+2. **Development Fallback:** If `standalone.mjs` is not present, falls back to local `tsx` if installed in `node_modules`.
+3. **Native Node Type Stripping:** On modern Node.js versions (>= 22.6), falls back to `--experimental-strip-types`.
+
+### 5.3 Current Packaging Limitations
+
+1. **Local Monorepo Dependency Resolution:** In the current Phase 2B development state, the standalone bundle relies on the project's `node_modules` for external peer packages (`@modelcontextprotocol/server`, `@modelcontextprotocol/client`, `zod`). On an end-user machine without this repository cloned, the bundle cannot run until packaged for distribution.
+2. **NPM Distribution Prerequisite (Planned):** For production distribution to general end users, Veylith will be published as an npm package (`veylith-stdio`) with bundled or declared runtime dependencies, allowing global installation via `npm install -g @veylith/stdio-adapter` or direct execution via `npx -y @veylith/stdio-adapter`.
+3. **Node.js Runtime Requirement:** Veylith requires Node.js v20.0.0 or higher. It is not currently compiled as a single native executable (e.g. Node SEA / Single Executable Application or Bun standalone binary).
+4. **Platform Testing:** Process spawning and signal handling have been thoroughly validated on macOS (Darwin arm64/x64) and Linux; Windows support relies on standard Node.js cross-platform process semantics but has not been verified on Windows hardware.

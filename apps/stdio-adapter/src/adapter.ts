@@ -36,7 +36,7 @@ import type { Readable, Writable } from 'node:stream';
 export interface StdioAdapterConfig {
   /** Mode: 'gateway' bridges to Veylith HTTP Gateway; 'standalone' runs policy engine in-process. */
   mode?: 'gateway' | 'standalone';
-  /** Gateway HTTP URL (for gateway mode). Default: http://127.0.0.1:3000/mcp */
+  /** Gateway HTTP URL (for gateway mode). Default: http://127.0.0.1:8787/mcp */
   gatewayUrl?: string;
   /** Upstream MCP HTTP URL (for standalone HTTP mode). */
   upstreamUrl?: string;
@@ -85,7 +85,7 @@ export class VeylithStdioAdapter {
       mode:
         config.mode ?? (config.upstreamCommand || config.upstreamUrl ? 'standalone' : 'gateway'),
       gatewayUrl:
-        config.gatewayUrl ?? process.env['VEYLITH_GATEWAY_URL'] ?? 'http://127.0.0.1:3000/mcp',
+        config.gatewayUrl ?? process.env['VEYLITH_GATEWAY_URL'] ?? 'http://127.0.0.1:8787/mcp',
       failClosed: config.failClosed ?? true,
       maxBufferSize: config.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE,
       logLevel: config.logLevel ?? 'info',

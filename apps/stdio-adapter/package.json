@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "veylith-stdio": "./dist/index.js"
+    "veylith-stdio": "./dist/standalone.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.4.0",
@@ -16,7 +16,7 @@
   },
   "scripts": {
     "start": "tsx src/index.ts",
-    "build": "tsc --build",
+    "build": "tsc --build && tsx ../../scripts/bundle-stdio.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist *.tsbuildinfo",
     "test": "vitest run"
