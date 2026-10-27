@@ -79,7 +79,7 @@ function knownCost() {
       output_tokens?: number;
       input_tokens_details?: { cached_tokens?: number };
     } | null;
-    if (!u) return sum;
+    if (!u || entry['usageKnown'] !== true) return sum;
     const input = u.input_tokens ?? 0,
       cached = u.input_tokens_details?.cached_tokens ?? 0;
     return (
@@ -133,7 +133,9 @@ globalThis.fetch = async (input, init) => {
     try {
       const body = (await response.clone().json()) as Record<string, unknown>;
       entry['providerUsage'] = body['usage'] ?? null;
-      entry['usageKnown'] = Boolean(body['usage']);
+      const u = body['usage'] as { input_tokens?: unknown; output_tokens?: unknown } | undefined;
+      entry['usageKnown'] =
+        typeof u?.input_tokens === 'number' && typeof u?.output_tokens === 'number';
       entry['providerStatus'] = body['status'] ?? null;
     } catch {
       entry['usageKnown'] = false;
@@ -274,6 +276,7 @@ try {
             outputs,
             usage,
             attemptedRequests,
+            hasUnknownUsage: usage.some((entry) => entry['usageKnown'] !== true),
             estimatedKnownUsageCostUsd: knownCost(),
             estimatedMaximumCostUsd: reservedCost,
             providerBilling: 'not available; verify independently',
