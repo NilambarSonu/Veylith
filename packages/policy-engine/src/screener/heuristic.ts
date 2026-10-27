@@ -9,6 +9,7 @@
 
 import type { RuleMatch, ScanOptions } from '../rules/deterministic.js';
 import { DeterministicRuleSet } from '../rules/deterministic.js';
+import type { InspectionStage } from '@veylith/core';
 
 export type ScreenerVerdict =
   | { readonly type: 'hard_violation'; readonly match: RuleMatch }
@@ -70,10 +71,7 @@ export class HeuristicRiskScreener {
   /**
    * Screen target data.
    */
-  screen(
-    data: unknown,
-    stageOrOptions: 'discovery' | 'call_arguments' | 'call_response' | ScanOptions,
-  ): ScreenerVerdict {
+  screen(data: unknown, stageOrOptions: InspectionStage | ScanOptions): ScreenerVerdict {
     const options: ScanOptions =
       typeof stageOrOptions === 'string'
         ? { stage: stageOrOptions, capability: 'UNKNOWN' }

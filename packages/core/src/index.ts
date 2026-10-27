@@ -23,4 +23,11 @@ export type {
   InspectionContext,
   SecurityInspectionInput,
   SecurityInspectionResult,
+  ResourceMetadataInput,
+  ResourceTemplateInput,
+  ResourceContentItem,
+  PromptMetadataInput,
+  PromptMessageItem,
+  ClientSession,
+  AuditRecord,
 } from './inspection/index.js';

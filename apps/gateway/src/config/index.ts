@@ -23,6 +23,9 @@ export interface GatewayConfig {
   readonly metaModel: string;
   readonly failClosed: boolean;
   readonly capabilityBindings: readonly TrustedToolBinding[];
+  readonly enforceSessions: boolean;
+  readonly allowBinaryResources: boolean;
+  readonly maxResourceContentBytes: number;
 }
 
 export function loadConfig(): GatewayConfig {
@@ -85,6 +88,13 @@ export function loadConfig(): GatewayConfig {
     }
   }
 
+  const enforceSessions = process.env['ENFORCE_SESSIONS'] === 'true';
+  const allowBinaryResources = process.env['ALLOW_BINARY_RESOURCES'] === 'true';
+  const maxResourceContentBytes = parseInt(
+    process.env['MAX_RESOURCE_BYTES'] ?? `${5 * 1024 * 1024}`,
+    10,
+  );
+
   return {
     host,
     port,
@@ -99,5 +109,8 @@ export function loadConfig(): GatewayConfig {
     metaModel,
     failClosed,
     capabilityBindings,
+    enforceSessions,
+    allowBinaryResources,
+    maxResourceContentBytes,
   };
 }

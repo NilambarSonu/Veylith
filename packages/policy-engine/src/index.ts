@@ -15,9 +15,28 @@ export {
   type DefinitionTrackingResult,
 } from './capabilities/registry.js';
 export {
+  ClientSessionManager,
+  DEFAULT_SESSION_TTL_MS,
+  type CreateSessionOptions,
+  type SessionRejectionReason,
+  type SessionValidationResult,
+} from './sessions/manager.js';
+export {
+  AuditLogChain,
+  GENESIS_HASH,
+  canonicalJson,
+  computeEventHash,
+  type CreateAuditRecordInput,
+  type ChainVerificationResult,
+} from './audit/chain.js';
+export {
   SecurityInspectionEngine,
   type SecurityEngineOptions,
   type ToolMetadataInput,
   type DiscoveryInspectionOutcome,
   type ResponseInspectionOutcome,
+  type ResourceDiscoveryOutcome,
+  type ResourceContentOutcome,
+  type PromptDiscoveryOutcome,
+  type PromptMessagesOutcome,
 } from './engine/index.js';

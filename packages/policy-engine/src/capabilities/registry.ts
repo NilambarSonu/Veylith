@@ -270,6 +270,46 @@ export class ToolCapabilityRegistry {
   }
 
   /**
+   * Verifies that a tool definition being invoked matches the baseline established during discovery (TOCTOU protection).
+   *
+   * Security Rule: A tool must not gain additional privileges or alter its input schema between discovery and invocation.
+   */
+  verifyInvocationConsistency(
+    serverId: string | undefined,
+    toolName: string,
+    currentDefinition?: ToolDefinitionInput,
+  ): {
+    readonly consistent: boolean;
+    readonly reason?: string;
+    readonly expectedHash?: string;
+    readonly currentHash?: string;
+  } {
+    const effectiveServerId = serverId ?? 'default';
+    const key = `${effectiveServerId}:${toolName}`;
+    const baseline = this.toolDefinitions.get(key);
+
+    if (!baseline) {
+      // Tool was never registered during discovery
+      return { consistent: false, reason: 'tool_not_discovered' };
+    }
+
+    if (currentDefinition) {
+      const currentHash = computeToolDefinitionHash(currentDefinition);
+      if (currentHash !== baseline.schemaHash) {
+        return {
+          consistent: false,
+          reason: `TOCTOU violation: tool '${toolName}' definition changed between discovery and invocation`,
+          expectedHash: baseline.schemaHash,
+          currentHash,
+        };
+      }
+      return { consistent: true, expectedHash: baseline.schemaHash, currentHash };
+    }
+
+    return { consistent: true, expectedHash: baseline.schemaHash };
+  }
+
+  /**
    * Resets all recorded tool definitions and bindings.
    */
   reset(): void {

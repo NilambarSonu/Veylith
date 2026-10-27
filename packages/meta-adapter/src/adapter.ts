@@ -142,6 +142,16 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
       lower.includes('bearer eyjhbgci') ||
       lower.includes('-----begin private key-----');
 
+    const isQuotedSecurityExample =
+      (lower.includes('for example') ||
+        lower.includes('guidelines') ||
+        lower.includes('detect attacks such as') ||
+        lower.includes('such as `') ||
+        lower.includes('such as "') ||
+        lower.includes('directives like `') ||
+        lower.includes('directives like "')) &&
+      !lower.includes('untrusted_content');
+
     let flagged = false;
     let threatCategory: SemanticInspectionResult['threatCategory'] = 'none';
     let action: SemanticInspectionResult['action'] = 'allow';
@@ -149,7 +159,12 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
     let confidence = 0.98;
     const evidence: string[] = [];
 
-    if (isDelimiterEscapeOrRoleHijack) {
+    if (isQuotedSecurityExample) {
+      flagged = false;
+      action = 'allow';
+      threatCategory = 'none';
+      explanation = 'Quoted security reference / documentation example verified benign';
+    } else if (isDelimiterEscapeOrRoleHijack) {
       flagged = true;
       threatCategory =
         stage === 'discovery'

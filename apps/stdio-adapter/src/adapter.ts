@@ -12,6 +12,8 @@
  *   - Stage 1: Discovery Inspection (filters poisoned tool descriptions)
  *   - Stage 2: Argument Inspection (blocks dangerous commands / arguments before forwarding)
  *   - Stage 3: Response Inspection (sanitizes indirect prompt injections and prevents credential leaks)
+ *   - Stage 4: Resource Discovery & Content Inspection (binary policy, size limits, prompt injection in docs)
+ *   - Stage 5: Prompt Discovery & Message Inspection (instruction hijacking & role spoofing detection)
  *   - Protocol Invariant: Zero non-protocol bytes on stdout; all logs strictly to stderr.
  */
 
@@ -25,9 +27,19 @@ import { Client } from '@modelcontextprotocol/client';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { Transport } from '@modelcontextprotocol/server';
-import { SecurityInspectionEngine, type TrustedToolBinding } from '@veylith/policy-engine';
+import {
+  SecurityInspectionEngine,
+  ClientSessionManager,
+  AuditLogChain,
+  type TrustedToolBinding,
+} from '@veylith/policy-engine';
 import { MetaMuseSecurityAdapter } from '@veylith/meta-adapter';
-import type { PolicyRule, InspectionContext } from '@veylith/core';
+import type {
+  PolicyRule,
+  InspectionContext,
+  ResourceContentItem,
+  PromptMessageItem,
+} from '@veylith/core';
 import * as z from 'zod/v4';
 import { StdioLogger, type LogLevel } from './logger.js';
 import {
@@ -75,6 +87,14 @@ export interface StdioAdapterConfig {
   metaApiKey?: string;
   /** Meta Model (for live mode). */
   metaModel?: string;
+  /** Session identifier for client authorization. */
+  sessionId?: string;
+  /** Client identity string. */
+  clientIdentity?: string;
+  /** Whether to permit uninspected binary resources. Default: false */
+  allowBinaryResources?: boolean;
+  /** Maximum resource content size in bytes. Default: 5MB */
+  maxResourceContentBytes?: number;
   /** Custom stdin stream (for testing). Default: process.stdin */
   stdin?: Readable;
   /** Custom stdout stream (for testing). Default: process.stdout */
@@ -85,7 +105,9 @@ export class VeylithStdioAdapter {
   private readonly config: StdioAdapterConfig;
   private readonly logger: StdioLogger;
   private readonly mode: 'gateway' | 'standalone';
-  private readonly securityEngine?: SecurityInspectionEngine;
+  public readonly securityEngine?: SecurityInspectionEngine;
+  public readonly sessionManager: ClientSessionManager;
+  public readonly auditChain: AuditLogChain;
   private serverHandle: StdioServerHandle | null = null;
   private running = false;
   private activeUpstreamClients = new Set<Client>();
@@ -107,6 +129,8 @@ export class VeylithStdioAdapter {
 
     this.mode = this.config.mode!;
     this.logger = new StdioLogger(this.config.logLevel, this.config.redactSecrets);
+    this.sessionManager = new ClientSessionManager();
+    this.auditChain = new AuditLogChain();
 
     // If standalone mode, initialize in-process SecurityInspectionEngine
     if (this.mode === 'standalone') {
@@ -130,6 +154,10 @@ export class VeylithStdioAdapter {
         failClosed: this.config.failClosed,
         policyVersion: 'v1.0.0',
         capabilityBindings: this.config.capabilityBindings,
+        sessionManager: this.sessionManager,
+        auditChain: this.auditChain,
+        maxResourceContentBytes: this.config.maxResourceContentBytes,
+        allowBinaryResources: this.config.allowBinaryResources,
       });
     }
   }
@@ -220,15 +248,27 @@ export class VeylithStdioAdapter {
       upstreamClient = await this.createUpstreamClient();
       this.activeUpstreamClients.add(upstreamClient);
 
-      const { tools } = await upstreamClient.listTools();
+      // ----------------------------------------------------
+      // 1. TOOL DISCOVERY & REGISTRATION
+      // ----------------------------------------------------
+      let tools: readonly { name: string; description?: string; inputSchema?: unknown }[] = [];
+      try {
+        const toolsResult = await upstreamClient.listTools();
+        tools = toolsResult.tools;
+      } catch {
+        // Upstream does not support tools or error
+      }
 
-      // Tool Discovery & Registration
-      let cleanTools: readonly { name: string; description?: string }[] = tools;
+      let cleanTools: readonly { name: string; description?: string; inputSchema?: unknown }[] =
+        tools;
       if (this.mode === 'standalone' && this.securityEngine) {
-        // Stage 1: Discovery Inspection (Tool-description poisoning & static block rules)
         const serverId =
           this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
-        const discoveryOutcome = await this.securityEngine.inspectDiscovery(tools, { serverId });
+        const discoveryOutcome = await this.securityEngine.inspectDiscovery(tools, {
+          serverId,
+          sessionId: this.config.sessionId,
+          clientIdentity: this.config.clientIdentity,
+        });
 
         for (const blocked of discoveryOutcome.blockedTools) {
           this.logger.warn(
@@ -254,9 +294,175 @@ export class VeylithStdioAdapter {
             inputSchema: z.record(z.string(), z.unknown()).optional(),
           },
           async (args) => {
-            return this.handleToolCall(toolName, (args as Record<string, unknown>) ?? {});
+            return this.handleToolCall(toolName, (args as Record<string, unknown>) ?? {}, tool);
           },
         );
+      }
+
+      // ----------------------------------------------------
+      // 2. RESOURCE DISCOVERY & REGISTRATION
+      // ----------------------------------------------------
+      try {
+        const { resources } = await upstreamClient.listResources();
+        const templatesRes = await upstreamClient.listResourceTemplates().catch(() => ({
+          resourceTemplates: [],
+        }));
+        const templates = templatesRes.resourceTemplates ?? [];
+
+        const resourceList: Array<{
+          name: string;
+          uri: string;
+          description?: string;
+          mimeType?: string;
+        }> = [...resources];
+
+        if (this.mode === 'standalone' && this.securityEngine) {
+          const serverId =
+            this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
+          const resOutcome = await this.securityEngine.inspectResourceDiscovery(
+            resources,
+            templates,
+            {
+              requestId: crypto.randomUUID(),
+              stage: 'resource_discovery',
+              method: 'resources/list',
+              serverId,
+              sessionId: this.config.sessionId,
+              clientIdentity: this.config.clientIdentity,
+              timestamp: new Date().toISOString(),
+            },
+          );
+          resourceList.length = 0;
+          resourceList.push(...resOutcome.cleanResources);
+        }
+
+        for (let i = 0; i < resourceList.length; i++) {
+          const res = resourceList[i]!;
+          server.registerResource(
+            res.name,
+            res.uri,
+            {
+              description: res.description,
+              mimeType: res.mimeType,
+            },
+            async (uri) => {
+              const resRead = await this.handleResourceRead(uri.href);
+              return {
+                contents: resRead.contents.map((c) =>
+                  c.blob !== undefined
+                    ? {
+                        uri: c.uri,
+                        mimeType: c.mimeType ?? 'application/octet-stream',
+                        blob: c.blob,
+                      }
+                    : {
+                        uri: c.uri,
+                        mimeType: c.mimeType ?? 'text/plain',
+                        text: c.text ?? '',
+                      },
+                ),
+              };
+            },
+          );
+        }
+
+        // Support subscribe and unsubscribe
+        server.server.registerCapabilities({
+          resources: {
+            subscribe: true,
+            listChanged: true,
+          },
+        });
+
+        server.server.setRequestHandler('resources/subscribe', async (req) => {
+          const uri = (req.params as { uri?: string })?.uri;
+          if (!uri) throw new Error('Missing uri parameter');
+          const forwardClient = await this.createUpstreamClient();
+          try {
+            await forwardClient.subscribeResource({ uri });
+            return {};
+          } finally {
+            if (!this.config.upstreamCommand) {
+              await forwardClient.close().catch(() => {});
+            }
+          }
+        });
+
+        server.server.setRequestHandler('resources/unsubscribe', async (req) => {
+          const uri = (req.params as { uri?: string })?.uri;
+          if (!uri) throw new Error('Missing uri parameter');
+          const forwardClient = await this.createUpstreamClient();
+          try {
+            await forwardClient.unsubscribeResource({ uri });
+            return {};
+          } finally {
+            if (!this.config.upstreamCommand) {
+              await forwardClient.close().catch(() => {});
+            }
+          }
+        });
+      } catch {
+        // Upstream does not support resources or empty
+      }
+
+      // ----------------------------------------------------
+      // 3. PROMPT DISCOVERY & REGISTRATION
+      // ----------------------------------------------------
+      try {
+        const { prompts } = await upstreamClient.listPrompts();
+        const promptList: Array<{
+          name: string;
+          description?: string;
+          arguments?: readonly { name: string; description?: string; required?: boolean }[];
+        }> = [...prompts];
+
+        if (this.mode === 'standalone' && this.securityEngine) {
+          const serverId =
+            this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
+          const promptOutcome = await this.securityEngine.inspectPromptDiscovery(prompts, {
+            requestId: crypto.randomUUID(),
+            stage: 'prompt_discovery',
+            method: 'prompts/list',
+            serverId,
+            sessionId: this.config.sessionId,
+            clientIdentity: this.config.clientIdentity,
+            timestamp: new Date().toISOString(),
+          });
+          promptList.length = 0;
+          promptList.push(...promptOutcome.cleanPrompts);
+        }
+
+        for (let i = 0; i < promptList.length; i++) {
+          const prompt = promptList[i]!;
+          if (prompt.arguments && prompt.arguments.length > 0) {
+            const argsShape: Record<string, z.ZodType> = {};
+            for (const arg of prompt.arguments) {
+              argsShape[arg.name] = arg.required ? z.string() : z.string().optional();
+            }
+            server.registerPrompt(
+              prompt.name,
+              {
+                description: prompt.description,
+                argsSchema: argsShape,
+              },
+              async (args) => {
+                return this.handlePromptGet(prompt.name, (args as Record<string, unknown>) ?? {});
+              },
+            );
+          } else {
+            server.registerPrompt(
+              prompt.name,
+              {
+                description: prompt.description,
+              },
+              async () => {
+                return this.handlePromptGet(prompt.name, {});
+              },
+            );
+          }
+        }
+      } catch {
+        // Upstream does not support prompts or empty
       }
     } catch (err) {
       this.logger.error('Failed to initialize upstream MCP server tools', {
@@ -290,6 +496,7 @@ export class VeylithStdioAdapter {
   private async handleToolCall(
     toolName: string,
     args: Record<string, unknown>,
+    toolDef?: { name: string; description?: string; inputSchema?: unknown },
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
     const requestId = crypto.randomUUID();
     const start = performance.now();
@@ -300,12 +507,19 @@ export class VeylithStdioAdapter {
       method: 'tools/call',
       toolName,
       serverId,
+      sessionId: this.config.sessionId,
+      clientIdentity: this.config.clientIdentity,
       timestamp: new Date().toISOString(),
     };
 
     // In standalone mode, execute Stage 2 Argument Inspection locally
     if (this.mode === 'standalone' && this.securityEngine) {
-      const argInspection = await this.securityEngine.inspectArguments(ctx, toolName, args);
+      const argInspection = await this.securityEngine.inspectArguments(
+        ctx,
+        toolName,
+        args,
+        toolDef,
+      );
 
       this.logger.info('Argument security evaluation', {
         requestId,
@@ -378,6 +592,9 @@ export class VeylithStdioAdapter {
           stage: 'call_response',
           method: 'tools/call',
           toolName,
+          serverId,
+          sessionId: this.config.sessionId,
+          clientIdentity: this.config.clientIdentity,
           timestamp: new Date().toISOString(),
         };
 
@@ -411,7 +628,7 @@ export class VeylithStdioAdapter {
         };
       }
 
-      // In Gateway mode, Gateway already applied all 3 stages
+      // In Gateway mode, Gateway already applied all stages
       const durationMs = Math.round((performance.now() - start) * 100) / 100;
       this.logger.info('Request completed (gateway bridged)', {
         requestId,
@@ -440,6 +657,155 @@ export class VeylithStdioAdapter {
           },
         ],
         isError: true,
+      };
+    } finally {
+      if (!this.config.upstreamCommand) {
+        await forwardClient.close().catch(() => {});
+      }
+    }
+  }
+
+  /**
+   * Handles a resource read request with security inspection.
+   */
+  private async handleResourceRead(uri: string): Promise<{
+    contents: Array<{ uri: string; text?: string; blob?: string; mimeType?: string }>;
+  }> {
+    const forwardClient = await this.createUpstreamClient();
+    const serverId = this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
+
+    try {
+      const rawResult = await forwardClient.readResource({ uri });
+
+      if (this.mode === 'standalone' && this.securityEngine) {
+        const ctx: InspectionContext = {
+          requestId: crypto.randomUUID(),
+          stage: 'resource_content',
+          method: 'resources/read',
+          resourceUri: uri,
+          serverId,
+          sessionId: this.config.sessionId,
+          clientIdentity: this.config.clientIdentity,
+          timestamp: new Date().toISOString(),
+        };
+
+        const contentOutcome = await this.securityEngine.inspectResourceContent(
+          ctx,
+          uri,
+          (rawResult.contents as ResourceContentItem[]) ?? [],
+        );
+
+        if (contentOutcome.isBlocked) {
+          return {
+            contents: [
+              {
+                uri,
+                text: `[Veylith Security Notice]: Resource '${uri}' access blocked. Reason: ${contentOutcome.blockReason}`,
+                mimeType: 'text/plain',
+              },
+            ],
+          };
+        }
+
+        return {
+          contents: contentOutcome.sanitizedItems as Array<{
+            uri: string;
+            text?: string;
+            blob?: string;
+            mimeType?: string;
+          }>,
+        };
+      }
+
+      return {
+        contents: rawResult.contents as Array<{
+          uri: string;
+          text?: string;
+          blob?: string;
+          mimeType?: string;
+        }>,
+      };
+    } finally {
+      if (!this.config.upstreamCommand) {
+        await forwardClient.close().catch(() => {});
+      }
+    }
+  }
+
+  /**
+   * Handles a prompt get request with security inspection.
+   */
+  private async handlePromptGet(
+    promptName: string,
+    args: Record<string, unknown>,
+  ): Promise<{
+    description?: string;
+    messages: Array<{ role: 'user' | 'assistant'; content: { type: 'text'; text: string } }>;
+  }> {
+    const forwardClient = await this.createUpstreamClient();
+    const serverId = this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
+
+    try {
+      const rawResult = await forwardClient.getPrompt({
+        name: promptName,
+        arguments: args as Record<string, string>,
+      });
+
+      if (this.mode === 'standalone' && this.securityEngine) {
+        const ctx: InspectionContext = {
+          requestId: crypto.randomUUID(),
+          stage: 'prompt_messages',
+          method: 'prompts/get',
+          promptName,
+          serverId,
+          sessionId: this.config.sessionId,
+          clientIdentity: this.config.clientIdentity,
+          timestamp: new Date().toISOString(),
+        };
+
+        const msgOutcome = await this.securityEngine.inspectPromptMessages(
+          ctx,
+          promptName,
+          (rawResult.messages as PromptMessageItem[]) ?? [],
+          args,
+        );
+
+        if (msgOutcome.isBlocked) {
+          return {
+            description: rawResult.description,
+            messages: [
+              {
+                role: 'user' as const,
+                content: {
+                  type: 'text' as const,
+                  text: `[Veylith Security Notice]: Prompt '${promptName}' blocked. Reason: ${msgOutcome.blockReason}`,
+                },
+              },
+            ],
+          };
+        }
+
+        return {
+          description: rawResult.description,
+          messages: msgOutcome.sanitizedMessages.map((m) => ({
+            role: (m.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
+            content: {
+              type: 'text' as const,
+              text: typeof m.content.text === 'string' ? m.content.text : JSON.stringify(m.content),
+            },
+          })),
+        };
+      }
+
+      return {
+        description: rawResult.description,
+        messages: ((rawResult.messages as PromptMessageItem[]) ?? []).map((m) => ({
+          role: (m.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
+          content: {
+            type: 'text' as const,
+            text: typeof m.content.text === 'string' ? m.content.text : JSON.stringify(m.content),
+          },
+        })),
       };
     } finally {
       if (!this.config.upstreamCommand) {

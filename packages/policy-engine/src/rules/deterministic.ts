@@ -12,7 +12,7 @@
  *   - Known credential formats (API keys, private keys, tokens)
  */
 
-import type { ThreatCategory, ToolCapability } from '@veylith/core';
+import type { ThreatCategory, ToolCapability, InspectionStage } from '@veylith/core';
 
 export interface RuleMatch {
   readonly ruleId: string;
@@ -24,10 +24,11 @@ export interface RuleMatch {
 }
 
 export interface ScanOptions {
-  readonly stage: 'discovery' | 'call_arguments' | 'call_response';
+  readonly stage: InspectionStage;
   readonly capability?: ToolCapability;
   readonly toolName?: string;
   readonly serverId?: string;
+  readonly isQuotedExample?: boolean;
 }
 
 export class DeterministicRuleSet {
@@ -198,18 +199,10 @@ export class DeterministicRuleSet {
   /**
    * Scan text or structured data for deterministic rule violations.
    * Recursively traverses objects and arrays.
-   *
-   * Accounts for tool capabilities:
-   * - PURE_OR_READ: exempt from destructive shell/SQL/FS execution rules
-   * - SHELL_EXEC: evaluates destructive shell commands and sensitive files
-   * - SQL_EXEC: evaluates destructive SQL statements
-   * - FS_MUTATION: evaluates destructive filesystem operations and path traversal
-   * - NETWORK_OUT: evaluates exfiltration endpoints
-   * - UNKNOWN: default-deny conservative enforcement (all destructive patterns checked)
    */
   scan(
     data: unknown,
-    stageOrOptions: 'discovery' | 'call_arguments' | 'call_response' | ScanOptions,
+    stageOrOptions: InspectionStage | ScanOptions,
     pathPrefix = '',
   ): RuleMatch | null {
     if (data === null || data === undefined) return null;
@@ -222,6 +215,7 @@ export class DeterministicRuleSet {
             capability: stageOrOptions.capability ?? 'UNKNOWN',
             toolName: stageOrOptions.toolName,
             serverId: stageOrOptions.serverId,
+            isQuotedExample: stageOrOptions.isQuotedExample,
           };
 
     if (typeof data === 'string') {
@@ -247,16 +241,49 @@ export class DeterministicRuleSet {
     return null;
   }
 
+  private isQuotedOrDocumentationExample(str: string, matchIndex: number): boolean {
+    const prefix = str.slice(Math.max(0, matchIndex - 80), matchIndex);
+    const quotationPatterns = [
+      /\b(?:example|for instance|such as|sample|test case|documentation|guideline|rule|pattern|quoted|quote)\s*[:(]?\s*["'`]?\s*$/i,
+      /["'`]\s*$/i,
+      /\blook for\s*[:]?\s*$/i,
+      /\bidentif(?:y|ies)\s*[:]?\s*$/i,
+      /\bdetect(?:s|ing)?\s*[:]?\s*$/i,
+      /\bprevent(?:s|ing)?\s*[:]?\s*$/i,
+    ];
+    return quotationPatterns.some((qp) => qp.test(prefix));
+  }
+
   private checkString(str: string, options: ScanOptions, location: string): RuleMatch | null {
-    const { stage, capability = 'UNKNOWN' } = options;
+    const { stage, capability = 'UNKNOWN', isQuotedExample } = options;
 
     // Stage: Discovery & Responses -> Check prompt injection directives
     for (const rule of this.promptInjectionDirectives) {
       const match = rule.pattern.exec(str);
       if (match) {
+        // Quoted security documentation check: do not block legitimate security examples
+        if (
+          isQuotedExample ||
+          ((stage === 'resource_content' ||
+            stage === 'call_response' ||
+            stage === 'prompt_messages') &&
+            this.isQuotedOrDocumentationExample(str, match.index))
+        ) {
+          continue;
+        }
+
+        let threatCategory: ThreatCategory = 'malicious_response';
+        if (stage === 'discovery') {
+          threatCategory = 'tool_poisoning';
+        } else if (stage === 'resource_discovery' || stage === 'resource_content') {
+          threatCategory = 'resource_poisoning';
+        } else if (stage === 'prompt_discovery' || stage === 'prompt_messages') {
+          threatCategory = 'prompt_poisoning';
+        }
+
         return {
           ruleId: rule.id,
-          threatCategory: stage === 'discovery' ? 'tool_poisoning' : 'malicious_response',
+          threatCategory,
           matchedPattern: match[0],
           description: rule.desc,
           location,
