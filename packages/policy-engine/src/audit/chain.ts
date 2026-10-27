@@ -11,9 +11,18 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { AuditRecord, InspectionStage, PolicyAction } from '@veylith/core';
 
 export const GENESIS_HASH = '0'.repeat(64);
+
+export interface AuditLogChainOptions {
+  /** Optional file path for append-only JSONL persistence */
+  readonly storagePath?: string;
+  /** File mode permissions for local audit file (default: 0o600 - owner read/write only) */
+  readonly fileMode?: number;
+}
 
 export interface CreateAuditRecordInput {
   readonly sessionId?: string;
@@ -75,9 +84,60 @@ export function computeEventHash(
 export class AuditLogChain {
   private readonly records: AuditRecord[] = [];
   private lastHash: string = GENESIS_HASH;
+  private readonly storagePath?: string;
+  private readonly fileMode: number;
+  private fileFd?: number;
+
+  constructor(options?: AuditLogChainOptions) {
+    this.storagePath = options?.storagePath;
+    this.fileMode = options?.fileMode ?? 0o600;
+
+    if (this.storagePath) {
+      this.initPersistence();
+    }
+  }
+
+  private initPersistence(): void {
+    if (!this.storagePath) return;
+
+    const dir = path.dirname(this.storagePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    }
+
+    if (fs.existsSync(this.storagePath)) {
+      const content = fs.readFileSync(this.storagePath, 'utf8');
+      const lines = content.split('\n').filter((l) => l.trim().length > 0);
+      const loadedRecords: AuditRecord[] = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        try {
+          const parsed = JSON.parse(lines[i]!) as AuditRecord;
+          loadedRecords.push(parsed);
+        } catch (err) {
+          throw new Error(
+            `Audit log file corruption: invalid JSON at line ${i + 1}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+
+      if (loadedRecords.length > 0) {
+        const verification = this.verifyChain(loadedRecords);
+        if (!verification.valid) {
+          throw new Error(
+            `Audit log file integrity violation at record ${verification.tamperedIndex}: ${verification.error}`,
+          );
+        }
+        this.records.push(...loadedRecords);
+        this.lastHash = loadedRecords[loadedRecords.length - 1]!.currentEventHash;
+      }
+    }
+
+    this.fileFd = fs.openSync(this.storagePath, 'a', this.fileMode);
+  }
 
   /**
-   * Appends an event to the tamper-evident hash chain.
+   * Appends an event to the tamper-evident hash chain and persists it if configured.
    */
   append(input: CreateAuditRecordInput): AuditRecord {
     const sequenceNumber = this.records.length;
@@ -110,6 +170,13 @@ export class AuditLogChain {
       currentEventHash,
     };
 
+    // Durable atomic append to disk
+    if (this.fileFd !== undefined) {
+      const line = `${canonicalJson(fullRecord)}\n`;
+      fs.writeSync(this.fileFd, line);
+      fs.fsyncSync(this.fileFd);
+    }
+
     this.records.push(fullRecord);
     this.lastHash = currentEventHash;
 
@@ -128,6 +195,25 @@ export class AuditLogChain {
    */
   getLatestHash(): string {
     return this.lastHash;
+  }
+
+  /**
+   * Flushes in-flight persistent writes to disk.
+   */
+  flush(): void {
+    if (this.fileFd !== undefined) {
+      fs.fsyncSync(this.fileFd);
+    }
+  }
+
+  /**
+   * Closes the underlying file descriptor if open.
+   */
+  close(): void {
+    if (this.fileFd !== undefined) {
+      fs.closeSync(this.fileFd);
+      this.fileFd = undefined;
+    }
   }
 
   /**
@@ -187,5 +273,13 @@ export class AuditLogChain {
   reset(): void {
     this.records.length = 0;
     this.lastHash = GENESIS_HASH;
+    if (this.fileFd !== undefined) {
+      fs.closeSync(this.fileFd);
+      this.fileFd = undefined;
+    }
+    if (this.storagePath && fs.existsSync(this.storagePath)) {
+      fs.truncateSync(this.storagePath, 0);
+      this.fileFd = fs.openSync(this.storagePath, 'a', this.fileMode);
+    }
   }
 }

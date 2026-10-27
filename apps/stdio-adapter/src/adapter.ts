@@ -377,6 +377,23 @@ export class VeylithStdioAdapter {
         server.server.setRequestHandler('resources/subscribe', async (req) => {
           const uri = (req.params as { uri?: string })?.uri;
           if (!uri) throw new Error('Missing uri parameter');
+
+          if (this.config.sessionId && this.sessionManager) {
+            const serverId =
+              this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
+            const sessVal = this.sessionManager.validateSession(
+              this.config.sessionId,
+              this.config.clientIdentity,
+              serverId,
+            );
+            if (!sessVal.valid) {
+              throw new Error(`Unauthorized session for subscribe: ${sessVal.reason}`);
+            }
+            if (!this.sessionManager.isResourceAuthorized(this.config.sessionId, uri, serverId)) {
+              throw new Error(`Session not authorized to subscribe to resource: ${uri}`);
+            }
+          }
+
           const forwardClient = await this.createUpstreamClient();
           try {
             await forwardClient.subscribeResource({ uri });
@@ -391,6 +408,23 @@ export class VeylithStdioAdapter {
         server.server.setRequestHandler('resources/unsubscribe', async (req) => {
           const uri = (req.params as { uri?: string })?.uri;
           if (!uri) throw new Error('Missing uri parameter');
+
+          if (this.config.sessionId && this.sessionManager) {
+            const serverId =
+              this.config.serverId ?? this.config.upstreamCommand ?? this.config.upstreamUrl;
+            const sessVal = this.sessionManager.validateSession(
+              this.config.sessionId,
+              this.config.clientIdentity,
+              serverId,
+            );
+            if (!sessVal.valid) {
+              throw new Error(`Unauthorized session for unsubscribe: ${sessVal.reason}`);
+            }
+            if (!this.sessionManager.isResourceAuthorized(this.config.sessionId, uri, serverId)) {
+              throw new Error(`Session not authorized to unsubscribe from resource: ${uri}`);
+            }
+          }
+
           const forwardClient = await this.createUpstreamClient();
           try {
             await forwardClient.unsubscribeResource({ uri });

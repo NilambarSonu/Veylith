@@ -338,4 +338,4 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   process.on('SIGTERM', shutdown);
 }
 
-export { createBenignServer };
+export { createBenignServer, handler, httpServer };

@@ -24,6 +24,7 @@
     "test:all": "vitest run",
     "smoke:meta": "tsx scripts/meta-smoke-test.ts",
     "benchmark": "tsx scripts/benchmark-suite.ts",
+    "benchmark:phase-2d": "tsx scripts/benchmark-phase-2d.ts",
     "validate:live": "tsx scripts/live-validation-runner.ts",
     "eval:holdout": "vitest run tests/integration/holdout-evaluation.test.ts",
     "stdio": "tsx apps/stdio-adapter/src/index.ts",

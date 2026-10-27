@@ -26,6 +26,13 @@ export interface GatewayConfig {
   readonly enforceSessions: boolean;
   readonly allowBinaryResources: boolean;
   readonly maxResourceContentBytes: number;
+  readonly maxRequestBodyBytes: number;
+  readonly maxConcurrentRequests: number;
+  readonly maxConnections: number;
+  readonly discoveryCacheTtlMs: number;
+  readonly circuitBreakerFailureThreshold: number;
+  readonly circuitBreakerResetTimeoutMs: number;
+  readonly auditLogPath?: string;
 }
 
 export function loadConfig(): GatewayConfig {
@@ -94,6 +101,22 @@ export function loadConfig(): GatewayConfig {
     process.env['MAX_RESOURCE_BYTES'] ?? `${5 * 1024 * 1024}`,
     10,
   );
+  const maxRequestBodyBytes = parseInt(
+    process.env['MAX_REQUEST_BODY_BYTES'] ?? `${1 * 1024 * 1024}`,
+    10,
+  );
+  const maxConcurrentRequests = parseInt(process.env['MAX_CONCURRENT_REQUESTS'] ?? '50', 10);
+  const maxConnections = parseInt(process.env['MAX_CONNECTIONS'] ?? '100', 10);
+  const discoveryCacheTtlMs = parseInt(process.env['DISCOVERY_CACHE_TTL_MS'] ?? '2000', 10);
+  const circuitBreakerFailureThreshold = parseInt(
+    process.env['CIRCUIT_BREAKER_FAILURE_THRESHOLD'] ?? '5',
+    10,
+  );
+  const circuitBreakerResetTimeoutMs = parseInt(
+    process.env['CIRCUIT_BREAKER_RESET_TIMEOUT_MS'] ?? '10000',
+    10,
+  );
+  const auditLogPath = process.env['AUDIT_LOG_PATH'];
 
   return {
     host,
@@ -112,5 +135,12 @@ export function loadConfig(): GatewayConfig {
     enforceSessions,
     allowBinaryResources,
     maxResourceContentBytes,
+    maxRequestBodyBytes,
+    maxConcurrentRequests,
+    maxConnections,
+    discoveryCacheTtlMs,
+    circuitBreakerFailureThreshold,
+    circuitBreakerResetTimeoutMs,
+    auditLogPath,
   };
 }

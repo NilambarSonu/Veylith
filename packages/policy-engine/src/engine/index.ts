@@ -207,7 +207,7 @@ export class SecurityInspectionEngine {
 
     // Session validation if sessionId provided
     if (sessionId) {
-      const sessVal = this.sessionManager.validateSession(sessionId, clientIdentity);
+      const sessVal = this.sessionManager.validateSession(sessionId, clientIdentity, serverId);
       if (!sessVal.valid) {
         const res: SecurityInspectionResult = {
           id: randomUUID(),
@@ -467,7 +467,11 @@ export class SecurityInspectionEngine {
 
     // 1. Session validation (if sessionId is present)
     if (ctx.sessionId) {
-      const sessionCheck = this.sessionManager.validateSession(ctx.sessionId, ctx.clientIdentity);
+      const sessionCheck = this.sessionManager.validateSession(
+        ctx.sessionId,
+        ctx.clientIdentity,
+        ctx.serverId,
+      );
       if (!sessionCheck.valid) {
         const res: SecurityInspectionResult = {
           id: randomUUID(),
@@ -485,7 +489,7 @@ export class SecurityInspectionEngine {
       }
 
       // Check tool permission in session
-      if (!this.sessionManager.isToolAuthorized(ctx.sessionId, toolName)) {
+      if (!this.sessionManager.isToolAuthorized(ctx.sessionId, toolName, ctx.serverId)) {
         const res: SecurityInspectionResult = {
           id: randomUUID(),
           stage: 'call_arguments',
@@ -842,7 +846,11 @@ export class SecurityInspectionEngine {
 
     // Session validation if sessionId provided
     if (ctx?.sessionId) {
-      const sessVal = this.sessionManager.validateSession(ctx.sessionId, ctx.clientIdentity);
+      const sessVal = this.sessionManager.validateSession(
+        ctx.sessionId,
+        ctx.clientIdentity,
+        ctx.serverId,
+      );
       if (!sessVal.valid) {
         const res: SecurityInspectionResult = {
           id: randomUUID(),
@@ -995,7 +1003,11 @@ export class SecurityInspectionEngine {
 
     // Session validation
     if (ctx.sessionId) {
-      const sessionCheck = this.sessionManager.validateSession(ctx.sessionId, ctx.clientIdentity);
+      const sessionCheck = this.sessionManager.validateSession(
+        ctx.sessionId,
+        ctx.clientIdentity,
+        ctx.serverId,
+      );
       if (!sessionCheck.valid) {
         const res: SecurityInspectionResult = {
           id: randomUUID(),
@@ -1019,7 +1031,7 @@ export class SecurityInspectionEngine {
         };
       }
 
-      if (!this.sessionManager.isResourceAuthorized(ctx.sessionId, uri)) {
+      if (!this.sessionManager.isResourceAuthorized(ctx.sessionId, uri, ctx.serverId)) {
         const res: SecurityInspectionResult = {
           id: randomUUID(),
           stage: 'resource_content',
@@ -1280,7 +1292,11 @@ export class SecurityInspectionEngine {
 
     // Session validation if sessionId provided
     if (ctx?.sessionId) {
-      const sessVal = this.sessionManager.validateSession(ctx.sessionId, ctx.clientIdentity);
+      const sessVal = this.sessionManager.validateSession(
+        ctx.sessionId,
+        ctx.clientIdentity,
+        ctx.serverId,
+      );
       if (!sessVal.valid) {
         const res: SecurityInspectionResult = {
           id: randomUUID(),
@@ -1398,7 +1414,11 @@ export class SecurityInspectionEngine {
 
     // Session validation
     if (ctx.sessionId) {
-      const sessionCheck = this.sessionManager.validateSession(ctx.sessionId, ctx.clientIdentity);
+      const sessionCheck = this.sessionManager.validateSession(
+        ctx.sessionId,
+        ctx.clientIdentity,
+        ctx.serverId,
+      );
       if (!sessionCheck.valid) {
         const res: SecurityInspectionResult = {
           id: randomUUID(),
@@ -1422,7 +1442,7 @@ export class SecurityInspectionEngine {
         };
       }
 
-      if (!this.sessionManager.isPromptAuthorized(ctx.sessionId, promptName)) {
+      if (!this.sessionManager.isPromptAuthorized(ctx.sessionId, promptName, ctx.serverId)) {
         const res: SecurityInspectionResult = {
           id: randomUUID(),
           stage: 'prompt_messages',

@@ -32,6 +32,7 @@ import {
   AuditLogChain,
 } from '@veylith/policy-engine';
 import { MetaMuseSecurityAdapter } from '@veylith/meta-adapter';
+import { CircuitBreaker, CircuitBreakerOpenError } from './resilience/circuit-breaker.js';
 import type {
   PolicyRule,
   InspectionContext,
@@ -42,6 +43,12 @@ import * as z from 'zod/v4';
 
 export const config = loadConfig();
 export const logger = new Logger(config.logLevel, config.redactSecrets);
+
+// Circuit breaker for protecting upstream connections and failing fast
+export const upstreamCircuitBreaker = new CircuitBreaker({
+  failureThreshold: config.circuitBreakerFailureThreshold,
+  resetTimeoutMs: config.circuitBreakerResetTimeoutMs,
+});
 
 // Build static policy rules from configuration (e.g. BLOCKED_TOOLS)
 export const policyRules: PolicyRule[] = config.blockedTools.map((toolName, idx) => ({
@@ -61,9 +68,11 @@ export const metaAdapter = new MetaMuseSecurityAdapter({
   model: config.metaModel,
 });
 
-// Shared session manager and audit chain
+// Shared session manager and audit chain with optional persistence
 export const sessionManager = new ClientSessionManager();
-export const auditChain = new AuditLogChain();
+export const auditChain = new AuditLogChain({
+  storagePath: config.auditLogPath,
+});
 
 // Instantiate Hybrid Security Inspection Engine
 export const securityEngine = new SecurityInspectionEngine(policyRules, metaAdapter, {
@@ -75,6 +84,25 @@ export const securityEngine = new SecurityInspectionEngine(policyRules, metaAdap
   maxResourceContentBytes: config.maxResourceContentBytes,
   allowBinaryResources: config.allowBinaryResources,
 });
+
+// Discovery cache interface and storage
+interface DiscoveredUpstreamState {
+  readonly tools: readonly { name: string; description?: string; inputSchema?: unknown }[];
+  readonly resources: readonly ResourceContentItem[];
+  readonly templates: readonly unknown[];
+  readonly prompts: readonly {
+    name: string;
+    description?: string;
+    arguments?: readonly { name: string; description?: string; required?: boolean }[];
+  }[];
+  readonly cachedAt: number;
+}
+
+let upstreamDiscoveryCache: DiscoveredUpstreamState | null = null;
+
+export function invalidateDiscoveryCache(): void {
+  upstreamDiscoveryCache = null;
+}
 
 /**
  * Create an MCP client connected to the upstream server.
@@ -102,176 +130,157 @@ export const handler = createMcpHandler(async ({ requestInfo }) => {
   const clientIdentity =
     headers?.get('x-veylith-client-id') ?? (sessionId ? undefined : 'local-anonymous');
 
-  let upstreamClient: Client | null = null;
+  const now = Date.now();
+  let discovered: DiscoveredUpstreamState;
 
-  try {
-    upstreamClient = await createUpstreamClient();
+  if (
+    upstreamDiscoveryCache &&
+    config.discoveryCacheTtlMs > 0 &&
+    now - upstreamDiscoveryCache.cachedAt < config.discoveryCacheTtlMs
+  ) {
+    discovered = upstreamDiscoveryCache;
+  } else {
+    let fetchedTools: readonly { name: string; description?: string; inputSchema?: unknown }[] = [];
+    let fetchedResources: readonly ResourceContentItem[] = [];
+    let fetchedTemplates: readonly unknown[] = [];
+    let fetchedPrompts: readonly {
+      name: string;
+      description?: string;
+      arguments?: readonly { name: string; description?: string; required?: boolean }[];
+    }[] = [];
 
-    // ----------------------------------------------------
-    // 1. TOOL DISCOVERY & REGISTRATION
-    // ----------------------------------------------------
-    let tools: readonly { name: string; description?: string; inputSchema?: unknown }[] = [];
+    let upstreamClient: Client | null = null;
     try {
-      const toolsResult = await upstreamClient.listTools();
-      tools = toolsResult.tools;
-    } catch {
-      // Upstream does not support tools or error
+      upstreamClient = await upstreamCircuitBreaker.execute(() => createUpstreamClient());
+      try {
+        const toolsResult = await upstreamClient.listTools();
+        fetchedTools = toolsResult.tools;
+      } catch {
+        // Upstream does not support tools or error
+      }
+      try {
+        const { resources } = await upstreamClient.listResources();
+        fetchedResources = (resources as unknown as ResourceContentItem[]) ?? [];
+        const templatesRes = await upstreamClient.listResourceTemplates().catch(() => ({
+          resourceTemplates: [],
+        }));
+        fetchedTemplates = templatesRes.resourceTemplates ?? [];
+      } catch {
+        // Upstream does not support resources or empty
+      }
+      try {
+        const { prompts } = await upstreamClient.listPrompts();
+        fetchedPrompts = (prompts as unknown as typeof fetchedPrompts) ?? [];
+      } catch {
+        // Upstream does not support prompts or empty
+      }
+    } finally {
+      if (upstreamClient) {
+        await upstreamClient.close().catch(() => {});
+      }
     }
 
-    if (tools.length > 0) {
-      const discoveryOutcome = await securityEngine.inspectDiscovery(tools, {
-        serverId: config.upstreamMcpUrl,
-        clientIdentity,
-        sessionId,
+    discovered = {
+      tools: fetchedTools,
+      resources: fetchedResources,
+      templates: fetchedTemplates,
+      prompts: fetchedPrompts,
+      cachedAt: now,
+    };
+    upstreamDiscoveryCache = discovered;
+  }
+
+  // ----------------------------------------------------
+  // 1. TOOL DISCOVERY & REGISTRATION
+  // ----------------------------------------------------
+  const tools = discovered.tools;
+  if (tools.length > 0) {
+    const discoveryOutcome = await securityEngine.inspectDiscovery(tools, {
+      serverId: config.upstreamMcpUrl,
+      clientIdentity,
+      sessionId,
+    });
+
+    for (const blocked of discoveryOutcome.blockedTools) {
+      logger.warn('Tool blocked from discovery (tool-description poisoning or static rule)', {
+        toolName: blocked.name,
+        threatCategory: blocked.threatCategory,
+        reason: blocked.reason,
       });
+    }
 
-      for (const blocked of discoveryOutcome.blockedTools) {
-        logger.warn('Tool blocked from discovery (tool-description poisoning or static rule)', {
-          toolName: blocked.name,
-          threatCategory: blocked.threatCategory,
-          reason: blocked.reason,
-        });
-      }
+    for (const tool of discoveryOutcome.cleanTools) {
+      const toolName = tool.name;
 
-      for (const tool of discoveryOutcome.cleanTools) {
-        const toolName = tool.name;
+      server.registerTool(
+        toolName,
+        {
+          description: tool.description ?? '',
+          inputSchema: z.record(z.string(), z.unknown()).optional(),
+        },
+        async (args) => {
+          const requestId = crypto.randomUUID();
+          const start = performance.now();
+          const ctx: InspectionContext = {
+            requestId,
+            stage: 'call_arguments',
+            method: 'tools/call',
+            toolName,
+            serverId: config.upstreamMcpUrl,
+            clientIdentity,
+            sessionId,
+            timestamp: new Date().toISOString(),
+          };
 
-        server.registerTool(
-          toolName,
-          {
-            description: tool.description ?? '',
-            inputSchema: z.record(z.string(), z.unknown()).optional(),
-          },
-          async (args) => {
-            const requestId = crypto.randomUUID();
-            const start = performance.now();
-            const ctx: InspectionContext = {
+          const argInspection = await securityEngine.inspectArguments(
+            ctx,
+            toolName,
+            (args as Record<string, unknown>) ?? {},
+            tool,
+          );
+
+          logger.info('Argument security evaluation', {
+            requestId,
+            toolName,
+            action: argInspection.action,
+            threatCategory: argInspection.threatCategory,
+            origin: argInspection.origin,
+            durationMs: argInspection.evaluationDurationMs,
+          });
+
+          if (
+            argInspection.action === 'block' ||
+            (argInspection.action === 'review' && config.failClosed)
+          ) {
+            const durationMs = Math.round((performance.now() - start) * 100) / 100;
+            logger.warn('Tool call blocked by security engine', {
               requestId,
-              stage: 'call_arguments',
-              method: 'tools/call',
               toolName,
-              serverId: config.upstreamMcpUrl,
-              clientIdentity,
-              sessionId,
-              timestamp: new Date().toISOString(),
-            };
-
-            const argInspection = await securityEngine.inspectArguments(
-              ctx,
-              toolName,
-              (args as Record<string, unknown>) ?? {},
-              tool,
-            );
-
-            logger.info('Argument security evaluation', {
-              requestId,
-              toolName,
-              action: argInspection.action,
               threatCategory: argInspection.threatCategory,
-              origin: argInspection.origin,
-              durationMs: argInspection.evaluationDurationMs,
+              explanation: argInspection.explanation,
+              ruleId: argInspection.ruleId,
+              durationMs,
             });
 
-            if (
-              argInspection.action === 'block' ||
-              (argInspection.action === 'review' && config.failClosed)
-            ) {
-              const durationMs = Math.round((performance.now() - start) * 100) / 100;
-              logger.warn('Tool call blocked by security engine', {
-                requestId,
-                toolName,
-                threatCategory: argInspection.threatCategory,
-                explanation: argInspection.explanation,
-                ruleId: argInspection.ruleId,
-                durationMs,
-              });
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `Veylith policy blocked this call: ${argInspection.explanation}`,
+                },
+              ],
+              isError: true,
+            };
+          }
 
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: `Veylith policy blocked this call: ${argInspection.explanation}`,
-                  },
-                ],
-                isError: true,
-              };
-            }
-
-            // Forward to upstream
+          // Forward to upstream
+          try {
+            let forwardClient: Client;
             try {
-              let forwardClient: Client;
-              try {
-                forwardClient = await createUpstreamClient();
-              } catch (err) {
-                const durationMs = Math.round((performance.now() - start) * 100) / 100;
-                logger.error('Upstream connection failed', {
-                  requestId,
-                  toolName,
-                  error: err instanceof Error ? err.message : String(err),
-                  durationMs,
-                });
-                return {
-                  content: [
-                    {
-                      type: 'text' as const,
-                      text: 'Veylith gateway: upstream server unavailable',
-                    },
-                  ],
-                  isError: true,
-                };
-              }
-
-              try {
-                const rawResult = await forwardClient.callTool({
-                  name: toolName,
-                  arguments: args as Record<string, unknown>,
-                });
-
-                const respCtx: InspectionContext = {
-                  requestId,
-                  stage: 'call_response',
-                  method: 'tools/call',
-                  toolName,
-                  serverId: config.upstreamMcpUrl,
-                  clientIdentity,
-                  sessionId,
-                  timestamp: new Date().toISOString(),
-                };
-
-                const respOutcome = await securityEngine.inspectResponse(
-                  respCtx,
-                  toolName,
-                  (rawResult.content as Array<{ type: string; text?: string }>) ?? [],
-                );
-
-                if (respOutcome.isRedacted) {
-                  logger.warn('Tool response sanitized by security engine', {
-                    requestId,
-                    toolName,
-                    threatCategory: respOutcome.result.threatCategory,
-                    explanation: respOutcome.result.explanation,
-                  });
-                }
-
-                const durationMs = Math.round((performance.now() - start) * 100) / 100;
-                logger.info('Request completed', {
-                  requestId,
-                  toolName,
-                  action: 'allow',
-                  isRedacted: respOutcome.isRedacted,
-                  durationMs,
-                });
-
-                return {
-                  content: respOutcome.sanitizedContent as Array<{ type: 'text'; text: string }>,
-                  isError: (rawResult.isError ?? false) || respOutcome.isRedacted,
-                };
-              } finally {
-                await forwardClient.close().catch(() => {});
-              }
+              forwardClient = await upstreamCircuitBreaker.execute(() => createUpstreamClient());
             } catch (err) {
               const durationMs = Math.round((performance.now() - start) * 100) / 100;
-              logger.error('Upstream call failed', {
+              logger.error('Upstream connection failed', {
                 requestId,
                 toolName,
                 error: err instanceof Error ? err.message : String(err),
@@ -281,295 +290,431 @@ export const handler = createMcpHandler(async ({ requestInfo }) => {
                 content: [
                   {
                     type: 'text' as const,
-                    text: `Veylith gateway: upstream error — ${err instanceof Error ? err.message : 'unknown'}`,
+                    text: 'Veylith gateway: upstream server unavailable',
                   },
                 ],
                 isError: true,
               };
             }
-          },
-        );
-      }
-    }
-
-    // ----------------------------------------------------
-    // 2. RESOURCE DISCOVERY & REGISTRATION
-    // ----------------------------------------------------
-    try {
-      const { resources } = await upstreamClient.listResources();
-      const templatesRes = await upstreamClient.listResourceTemplates().catch(() => ({
-        resourceTemplates: [],
-      }));
-      const templates = templatesRes.resourceTemplates ?? [];
-
-      const resourceOutcome = await securityEngine.inspectResourceDiscovery(resources, templates, {
-        requestId: crypto.randomUUID(),
-        stage: 'resource_discovery',
-        method: 'resources/list',
-        serverId: config.upstreamMcpUrl,
-        clientIdentity,
-        sessionId,
-        timestamp: new Date().toISOString(),
-      });
-
-      for (const blocked of resourceOutcome.blockedResources) {
-        logger.warn('Resource blocked from discovery', {
-          uri: blocked.uri,
-          name: blocked.name,
-          threatCategory: blocked.threatCategory,
-          reason: blocked.reason,
-        });
-      }
-
-      for (const res of resourceOutcome.cleanResources) {
-        server.registerResource(
-          res.name,
-          res.uri,
-          {
-            description: res.description,
-            mimeType: res.mimeType,
-          },
-          async (uri) => {
-            const requestId = crypto.randomUUID();
-            const start = performance.now();
-            const forwardClient = await createUpstreamClient();
 
             try {
-              const rawResult = await forwardClient.readResource({ uri: uri.href });
-              const ctx: InspectionContext = {
+              const rawResult = await upstreamCircuitBreaker.execute(() =>
+                forwardClient.callTool({
+                  name: toolName,
+                  arguments: args as Record<string, unknown>,
+                }),
+              );
+
+              const respCtx: InspectionContext = {
                 requestId,
-                stage: 'resource_content',
-                method: 'resources/read',
-                resourceUri: uri.href,
+                stage: 'call_response',
+                method: 'tools/call',
+                toolName,
                 serverId: config.upstreamMcpUrl,
                 clientIdentity,
                 sessionId,
                 timestamp: new Date().toISOString(),
               };
 
-              const contentOutcome = await securityEngine.inspectResourceContent(
-                ctx,
-                uri.href,
-                (rawResult.contents as ResourceContentItem[]) ?? [],
+              const respOutcome = await securityEngine.inspectResponse(
+                respCtx,
+                toolName,
+                (rawResult.content as Array<{ type: string; text?: string }>) ?? [],
               );
 
-              if (contentOutcome.isBlocked) {
-                logger.warn('Resource content blocked by security engine', {
-                  uri: uri.href,
-                  reason: contentOutcome.blockReason,
+              if (respOutcome.isRedacted) {
+                logger.warn('Tool response sanitized by security engine', {
+                  requestId,
+                  toolName,
+                  threatCategory: respOutcome.result.threatCategory,
+                  explanation: respOutcome.result.explanation,
                 });
-                return {
-                  contents: [
-                    {
-                      uri: uri.href,
-                      text: `[Veylith Security Notice]: Resource '${uri.href}' access blocked. Reason: ${contentOutcome.blockReason}`,
-                      mimeType: 'text/plain',
-                    },
-                  ],
-                };
               }
 
               const durationMs = Math.round((performance.now() - start) * 100) / 100;
-              logger.info('Resource read completed', {
-                uri: uri.href,
-                isRedacted: contentOutcome.isRedacted,
+              logger.info('Request completed', {
+                requestId,
+                toolName,
+                action: 'allow',
+                isRedacted: respOutcome.isRedacted,
                 durationMs,
               });
 
               return {
-                contents: contentOutcome.sanitizedItems.map((item) =>
-                  item.blob !== undefined
-                    ? {
-                        uri: item.uri,
-                        mimeType: item.mimeType ?? 'application/octet-stream',
-                        blob: item.blob,
-                      }
-                    : {
-                        uri: item.uri,
-                        mimeType: item.mimeType ?? 'text/plain',
-                        text: item.text ?? '',
-                      },
-                ),
+                content: respOutcome.sanitizedContent as Array<{ type: 'text'; text: string }>,
+                isError: (rawResult.isError ?? false) || respOutcome.isRedacted,
               };
             } finally {
               await forwardClient.close().catch(() => {});
             }
-          },
-        );
-      }
-
-      // Register capability & handlers for subscribe/unsubscribe
-      server.server.registerCapabilities({
-        resources: {
-          subscribe: true,
-          listChanged: true,
+          } catch (err) {
+            const durationMs = Math.round((performance.now() - start) * 100) / 100;
+            logger.error('Upstream call failed', {
+              requestId,
+              toolName,
+              error: err instanceof Error ? err.message : String(err),
+              durationMs,
+            });
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `Veylith gateway: upstream error — ${err instanceof Error ? err.message : 'unknown'}`,
+                },
+              ],
+              isError: true,
+            };
+          }
         },
-      });
+      );
+    }
+  }
 
-      server.server.setRequestHandler('resources/subscribe', async (req) => {
-        const uri = (req.params as { uri?: string })?.uri;
-        if (!uri) throw new Error('Missing uri parameter');
-        const forwardClient = await createUpstreamClient();
-        try {
-          await forwardClient.subscribeResource({ uri });
-          return {};
-        } finally {
-          await forwardClient.close().catch(() => {});
-        }
-      });
+  // ----------------------------------------------------
+  // 2. RESOURCE DISCOVERY & REGISTRATION
+  // ----------------------------------------------------
+  try {
+    const resources = discovered.resources as unknown as readonly {
+      uri: string;
+      name: string;
+      description?: string;
+      mimeType?: string;
+    }[];
+    const templates = discovered.templates as readonly {
+      uriTemplate: string;
+      name: string;
+      description?: string;
+      mimeType?: string;
+    }[];
 
-      server.server.setRequestHandler('resources/unsubscribe', async (req) => {
-        const uri = (req.params as { uri?: string })?.uri;
-        if (!uri) throw new Error('Missing uri parameter');
-        const forwardClient = await createUpstreamClient();
-        try {
-          await forwardClient.unsubscribeResource({ uri });
-          return {};
-        } finally {
-          await forwardClient.close().catch(() => {});
-        }
+    const resourceOutcome = await securityEngine.inspectResourceDiscovery(resources, templates, {
+      requestId: crypto.randomUUID(),
+      stage: 'resource_discovery',
+      method: 'resources/list',
+      serverId: config.upstreamMcpUrl,
+      clientIdentity,
+      sessionId,
+      timestamp: new Date().toISOString(),
+    });
+
+    for (const blocked of resourceOutcome.blockedResources) {
+      logger.warn('Resource blocked from discovery', {
+        uri: blocked.uri,
+        name: blocked.name,
+        threatCategory: blocked.threatCategory,
+        reason: blocked.reason,
       });
-    } catch {
-      // Upstream does not support resources or empty
     }
 
-    // ----------------------------------------------------
-    // 3. PROMPT DISCOVERY & REGISTRATION
-    // ----------------------------------------------------
-    try {
-      const { prompts } = await upstreamClient.listPrompts();
-      const promptOutcome = await securityEngine.inspectPromptDiscovery(prompts, {
-        requestId: crypto.randomUUID(),
-        stage: 'prompt_discovery',
-        method: 'prompts/list',
-        serverId: config.upstreamMcpUrl,
-        clientIdentity,
-        sessionId,
-        timestamp: new Date().toISOString(),
-      });
-
-      for (const blocked of promptOutcome.blockedPrompts) {
-        logger.warn('Prompt blocked from discovery', {
-          name: blocked.name,
-          threatCategory: blocked.threatCategory,
-          reason: blocked.reason,
-        });
-      }
-
-      for (const prompt of promptOutcome.cleanPrompts) {
-        const promptHandler = async (args?: Record<string, unknown>) => {
+    for (const res of resourceOutcome.cleanResources) {
+      server.registerResource(
+        res.name,
+        res.uri,
+        {
+          description: res.description,
+          mimeType: res.mimeType,
+        },
+        async (uri) => {
           const requestId = crypto.randomUUID();
           const start = performance.now();
-          const forwardClient = await createUpstreamClient();
+          const forwardClient = await upstreamCircuitBreaker.execute(() => createUpstreamClient());
 
           try {
-            const rawResult = await forwardClient.getPrompt({
-              name: prompt.name,
-              arguments: (args as Record<string, string>) ?? {},
-            });
-
+            const rawResult = await upstreamCircuitBreaker.execute(() =>
+              forwardClient.readResource({ uri: uri.href }),
+            );
             const ctx: InspectionContext = {
               requestId,
-              stage: 'prompt_messages',
-              method: 'prompts/get',
-              promptName: prompt.name,
+              stage: 'resource_content',
+              method: 'resources/read',
+              resourceUri: uri.href,
               serverId: config.upstreamMcpUrl,
               clientIdentity,
               sessionId,
               timestamp: new Date().toISOString(),
             };
 
-            const msgOutcome = await securityEngine.inspectPromptMessages(
+            const contentOutcome = await securityEngine.inspectResourceContent(
               ctx,
-              prompt.name,
-              (rawResult.messages as PromptMessageItem[]) ?? [],
-              args,
+              uri.href,
+              (rawResult.contents as ResourceContentItem[]) ?? [],
             );
 
-            if (msgOutcome.isBlocked) {
-              logger.warn('Prompt messages blocked by security engine', {
-                promptName: prompt.name,
-                reason: msgOutcome.blockReason,
+            if (contentOutcome.isBlocked) {
+              logger.warn('Resource content blocked by security engine', {
+                uri: uri.href,
+                reason: contentOutcome.blockReason,
               });
               return {
-                description: rawResult.description,
-                messages: [
+                contents: [
                   {
-                    role: 'user' as const,
-                    content: {
-                      type: 'text' as const,
-                      text: `[Veylith Security Notice]: Prompt '${prompt.name}' blocked. Reason: ${msgOutcome.blockReason}`,
-                    },
+                    uri: uri.href,
+                    text: `[Veylith Security Notice]: Resource '${uri.href}' access blocked. Reason: ${contentOutcome.blockReason}`,
+                    mimeType: 'text/plain',
                   },
                 ],
               };
             }
 
             const durationMs = Math.round((performance.now() - start) * 100) / 100;
-            logger.info('Prompt get completed', {
-              promptName: prompt.name,
-              isRedacted: msgOutcome.isRedacted,
+            logger.info('Resource read completed', {
+              uri: uri.href,
+              isRedacted: contentOutcome.isRedacted,
               durationMs,
             });
 
             return {
-              description: rawResult.description,
-              messages: msgOutcome.sanitizedMessages.map((m) => ({
-                role: (m.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
-                content: {
-                  type: 'text' as const,
-                  text:
-                    typeof m.content.text === 'string' ? m.content.text : JSON.stringify(m.content),
-                },
-              })),
+              contents: contentOutcome.sanitizedItems.map((item) =>
+                item.blob !== undefined
+                  ? {
+                      uri: item.uri,
+                      mimeType: item.mimeType ?? 'application/octet-stream',
+                      blob: item.blob,
+                    }
+                  : {
+                      uri: item.uri,
+                      mimeType: item.mimeType ?? 'text/plain',
+                      text: item.text ?? '',
+                    },
+              ),
             };
           } finally {
             await forwardClient.close().catch(() => {});
           }
-        };
+        },
+      );
+    }
 
-        if (prompt.arguments && prompt.arguments.length > 0) {
-          const argsShape: Record<string, z.ZodType> = {};
-          for (const arg of prompt.arguments) {
-            argsShape[arg.name] = arg.required ? z.string() : z.string().optional();
-          }
-          server.registerPrompt(
-            prompt.name,
-            {
-              description: prompt.description,
-              argsSchema: argsShape,
-            },
-            promptHandler,
-          );
-        } else {
-          server.registerPrompt(
-            prompt.name,
-            {
-              description: prompt.description,
-            },
-            () => promptHandler(),
-          );
+    // Register capability & handlers for subscribe/unsubscribe
+    server.server.registerCapabilities({
+      resources: {
+        subscribe: true,
+        listChanged: true,
+      },
+    });
+
+    server.server.setRequestHandler('resources/subscribe', async (req) => {
+      const uri = (req.params as { uri?: string })?.uri;
+      if (!uri) throw new Error('Missing uri parameter');
+
+      if (sessionId) {
+        const sessVal = sessionManager.validateSession(
+          sessionId,
+          clientIdentity,
+          config.upstreamMcpUrl,
+        );
+        if (!sessVal.valid) {
+          throw new Error(`Unauthorized session for subscribe: ${sessVal.reason}`);
         }
+        if (!sessionManager.isResourceAuthorized(sessionId, uri, config.upstreamMcpUrl)) {
+          throw new Error(`Session not authorized to subscribe to resource: ${uri}`);
+        }
+      } else if (config.enforceSessions) {
+        throw new Error('Session authentication required to subscribe to resources');
       }
-    } catch {
-      // Upstream does not support prompts or empty
+
+      const forwardClient = await upstreamCircuitBreaker.execute(() => createUpstreamClient());
+      try {
+        await upstreamCircuitBreaker.execute(() => forwardClient.subscribeResource({ uri }));
+        return {};
+      } finally {
+        await forwardClient.close().catch(() => {});
+      }
+    });
+
+    server.server.setRequestHandler('resources/unsubscribe', async (req) => {
+      const uri = (req.params as { uri?: string })?.uri;
+      if (!uri) throw new Error('Missing uri parameter');
+
+      if (sessionId) {
+        const sessVal = sessionManager.validateSession(
+          sessionId,
+          clientIdentity,
+          config.upstreamMcpUrl,
+        );
+        if (!sessVal.valid) {
+          throw new Error(`Unauthorized session for unsubscribe: ${sessVal.reason}`);
+        }
+        if (!sessionManager.isResourceAuthorized(sessionId, uri, config.upstreamMcpUrl)) {
+          throw new Error(`Session not authorized to unsubscribe from resource: ${uri}`);
+        }
+      } else if (config.enforceSessions) {
+        throw new Error('Session authentication required to unsubscribe from resources');
+      }
+
+      const forwardClient = await upstreamCircuitBreaker.execute(() => createUpstreamClient());
+      try {
+        await upstreamCircuitBreaker.execute(() => forwardClient.unsubscribeResource({ uri }));
+        return {};
+      } finally {
+        await forwardClient.close().catch(() => {});
+      }
+    });
+  } catch {
+    // Upstream does not support resources or empty
+  }
+
+  // ----------------------------------------------------
+  // 3. PROMPT DISCOVERY & REGISTRATION
+  // ----------------------------------------------------
+  try {
+    const prompts = discovered.prompts;
+    const promptOutcome = await securityEngine.inspectPromptDiscovery(prompts, {
+      requestId: crypto.randomUUID(),
+      stage: 'prompt_discovery',
+      method: 'prompts/list',
+      serverId: config.upstreamMcpUrl,
+      clientIdentity,
+      sessionId,
+      timestamp: new Date().toISOString(),
+    });
+
+    for (const blocked of promptOutcome.blockedPrompts) {
+      logger.warn('Prompt blocked from discovery', {
+        name: blocked.name,
+        threatCategory: blocked.threatCategory,
+        reason: blocked.reason,
+      });
     }
-  } finally {
-    if (upstreamClient) {
-      await upstreamClient.close().catch(() => {});
+
+    for (const prompt of promptOutcome.cleanPrompts) {
+      const promptHandler = async (args?: Record<string, unknown>) => {
+        const requestId = crypto.randomUUID();
+        const start = performance.now();
+        const forwardClient = await upstreamCircuitBreaker.execute(() => createUpstreamClient());
+
+        try {
+          const rawResult = await upstreamCircuitBreaker.execute(() =>
+            forwardClient.getPrompt({
+              name: prompt.name,
+              arguments: (args as Record<string, string>) ?? {},
+            }),
+          );
+
+          const ctx: InspectionContext = {
+            requestId,
+            stage: 'prompt_messages',
+            method: 'prompts/get',
+            promptName: prompt.name,
+            serverId: config.upstreamMcpUrl,
+            clientIdentity,
+            sessionId,
+            timestamp: new Date().toISOString(),
+          };
+
+          const msgOutcome = await securityEngine.inspectPromptMessages(
+            ctx,
+            prompt.name,
+            (rawResult.messages as PromptMessageItem[]) ?? [],
+            args,
+          );
+
+          if (msgOutcome.isBlocked) {
+            logger.warn('Prompt messages blocked by security engine', {
+              promptName: prompt.name,
+              reason: msgOutcome.blockReason,
+            });
+            return {
+              description: rawResult.description,
+              messages: [
+                {
+                  role: 'user' as const,
+                  content: {
+                    type: 'text' as const,
+                    text: `[Veylith Security Notice]: Prompt '${prompt.name}' blocked. Reason: ${msgOutcome.blockReason}`,
+                  },
+                },
+              ],
+            };
+          }
+
+          const durationMs = Math.round((performance.now() - start) * 100) / 100;
+          logger.info('Prompt get completed', {
+            promptName: prompt.name,
+            isRedacted: msgOutcome.isRedacted,
+            durationMs,
+          });
+
+          return {
+            description: rawResult.description,
+            messages: msgOutcome.sanitizedMessages.map((m) => ({
+              role: (m.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
+              content: {
+                type: 'text' as const,
+                text:
+                  typeof m.content.text === 'string' ? m.content.text : JSON.stringify(m.content),
+              },
+            })),
+          };
+        } finally {
+          await forwardClient.close().catch(() => {});
+        }
+      };
+
+      if (prompt.arguments && prompt.arguments.length > 0) {
+        const argsShape: Record<string, z.ZodType> = {};
+        for (const arg of prompt.arguments) {
+          argsShape[arg.name] = arg.required ? z.string() : z.string().optional();
+        }
+        server.registerPrompt(
+          prompt.name,
+          {
+            description: prompt.description,
+            argsSchema: argsShape,
+          },
+          promptHandler,
+        );
+      } else {
+        server.registerPrompt(
+          prompt.name,
+          {
+            description: prompt.description,
+          },
+          () => promptHandler(),
+        );
+      }
     }
+  } catch {
+    // Upstream does not support prompts or empty
   }
 
   return server;
 });
 
-// HTTP server
+// HTTP server with concurrency, body-size, and timeout controls
+let activeInFlightRequests = 0;
+
 export const httpServer = createServer(async (req, res) => {
+  // Enforce request timeout
+  req.setTimeout(config.requestTimeoutMs, () => {
+    logger.warn('Gateway request timed out', { timeoutMs: config.requestTimeoutMs });
+    if (!res.headersSent) {
+      res.writeHead(504, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Gateway request timeout' }));
+    }
+    req.destroy();
+  });
+
   const url = new URL(req.url ?? '/', `http://${config.host}:${config.port}`);
 
   if (url.pathname !== '/mcp') {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found. Veylith gateway endpoint is at /mcp' }));
+    return;
+  }
+
+  // Concurrency limit check (backpressure)
+  if (activeInFlightRequests >= config.maxConcurrentRequests) {
+    logger.warn('Gateway concurrency limit reached', {
+      activeRequests: activeInFlightRequests,
+      limit: config.maxConcurrentRequests,
+    });
+    res.writeHead(429, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        error: 'Too many concurrent requests. Veylith gateway concurrency limit reached.',
+      }),
+    );
     return;
   }
 
@@ -593,9 +738,27 @@ export const httpServer = createServer(async (req, res) => {
     headers.set('x-veylith-client-id', url.searchParams.get('clientId')!);
   }
 
+  // Read request body with bounded size check
   const bodyChunks: Buffer[] = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
-    bodyChunks.push(chunk as Buffer);
+    const buf = chunk as Buffer;
+    totalBytes += buf.length;
+    if (totalBytes > config.maxRequestBodyBytes) {
+      logger.warn('Request body exceeded maximum allowed bytes', {
+        totalBytes,
+        limit: config.maxRequestBodyBytes,
+      });
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          error: `Payload too large. Maximum request body is ${config.maxRequestBodyBytes} bytes`,
+        }),
+      );
+      req.destroy();
+      return;
+    }
+    bodyChunks.push(buf);
   }
   const body = Buffer.concat(bodyChunks);
 
@@ -605,6 +768,7 @@ export const httpServer = createServer(async (req, res) => {
     body: ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : body,
   });
 
+  activeInFlightRequests++;
   try {
     const webResponse = await handler.fetch(webRequest);
     res.writeHead(webResponse.status, Object.fromEntries(webResponse.headers.entries()));
@@ -625,13 +789,28 @@ export const httpServer = createServer(async (req, res) => {
       res.end(await webResponse.text());
     }
   } catch (err) {
+    if (err instanceof CircuitBreakerOpenError) {
+      logger.warn('Circuit breaker open rejection', { error: err.message });
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          error: 'Upstream circuit breaker is OPEN. Upstream server is temporarily unavailable.',
+        }),
+      );
+      return;
+    }
+
     logger.error('Gateway handler error', {
       error: err instanceof Error ? err.message : String(err),
     });
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Internal gateway error' }));
+  } finally {
+    activeInFlightRequests--;
   }
 });
+
+httpServer.maxConnections = config.maxConnections;
 
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   httpServer.listen(config.port, config.host, () => {

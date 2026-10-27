@@ -26,6 +26,7 @@ export {
   GENESIS_HASH,
   canonicalJson,
   computeEventHash,
+  type AuditLogChainOptions,
   type CreateAuditRecordInput,
   type ChainVerificationResult,
 } from './audit/chain.js';

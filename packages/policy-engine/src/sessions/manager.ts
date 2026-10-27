@@ -25,7 +25,7 @@ export interface CreateSessionOptions {
 }
 
 export type SessionRejectionReason =
-  'not_found' | 'expired' | 'identity_mismatch' | 'invalid_format';
+  'not_found' | 'expired' | 'identity_mismatch' | 'server_mismatch' | 'invalid_format';
 
 export interface SessionValidationResult {
   readonly valid: boolean;
@@ -74,12 +74,13 @@ export class ClientSessionManager {
   }
 
   /**
-   * Validates a session by ID and optionally verifies that the caller identity matches.
+   * Validates a session by ID and optionally verifies that the caller identity and server binding match.
    * Updates lastAccessedAt if valid.
    */
   validateSession(
     sessionId: string | undefined,
     expectedClientIdentity?: string,
+    expectedServerId?: string,
   ): SessionValidationResult {
     if (!sessionId || typeof sessionId !== 'string' || !sessionId.startsWith('vyl-sess-')) {
       return { valid: false, reason: 'invalid_format' };
@@ -100,6 +101,10 @@ export class ClientSessionManager {
       return { valid: false, reason: 'identity_mismatch' };
     }
 
+    if (expectedServerId && session.serverId !== expectedServerId) {
+      return { valid: false, reason: 'server_mismatch' };
+    }
+
     // Touch session on active access
     const updated: ClientSession = {
       ...session,
@@ -114,8 +119,8 @@ export class ClientSessionManager {
   /**
    * Checks whether a tool invocation is authorized under the active session.
    */
-  isToolAuthorized(sessionId: string, toolName: string): boolean {
-    const validation = this.validateSession(sessionId);
+  isToolAuthorized(sessionId: string, toolName: string, expectedServerId?: string): boolean {
+    const validation = this.validateSession(sessionId, undefined, expectedServerId);
     if (!validation.valid || !validation.session) return false;
 
     const { permittedTools } = validation.session;
@@ -126,8 +131,8 @@ export class ClientSessionManager {
   /**
    * Checks whether a resource read is authorized under the active session.
    */
-  isResourceAuthorized(sessionId: string, resourceUri: string): boolean {
-    const validation = this.validateSession(sessionId);
+  isResourceAuthorized(sessionId: string, resourceUri: string, expectedServerId?: string): boolean {
+    const validation = this.validateSession(sessionId, undefined, expectedServerId);
     if (!validation.valid || !validation.session) return false;
 
     const { permittedResources } = validation.session;
@@ -142,8 +147,8 @@ export class ClientSessionManager {
   /**
    * Checks whether a prompt retrieval is authorized under the active session.
    */
-  isPromptAuthorized(sessionId: string, promptName: string): boolean {
-    const validation = this.validateSession(sessionId);
+  isPromptAuthorized(sessionId: string, promptName: string, expectedServerId?: string): boolean {
+    const validation = this.validateSession(sessionId, undefined, expectedServerId);
     if (!validation.valid || !validation.session) return false;
 
     const { permittedPrompts } = validation.session;
