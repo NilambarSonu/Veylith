@@ -1,5 +1,5 @@
 /**
- * Configuration for the Meta Muse Security Adapter.
+ * Configuration for the Meta Muse Security Adapter and third-party AI security providers.
  *
  * All values default to safe local settings:
  * - Default mode is 'mock' (zero external network requests)
@@ -8,9 +8,17 @@
  */
 
 import type { MetaAiMode } from './types.js';
+import {
+  type ModelProvider,
+  APPROVED_PROVIDERS,
+  resolveProviderApiKey,
+  validateProviderConfiguration,
+} from './providers.js';
 
 export interface MetaAdapterConfig {
-  readonly apiBaseUrl: string;
+  readonly provider: ModelProvider;
+  readonly endpoint: string;
+  readonly apiBaseUrl: string; // Kept for backwards compatibility
   readonly apiKey?: string;
   readonly model: string;
   readonly mode: MetaAiMode;
@@ -22,17 +30,53 @@ export interface MetaAdapterConfig {
 }
 
 export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdapterConfig {
+  const providerRaw =
+    overrides?.provider ?? (process.env['META_AI_PROVIDER'] as ModelProvider | undefined) ?? 'meta';
+  const provider: ModelProvider = (['meta', 'fireworks', 'baseten'] as const).includes(
+    providerRaw as ModelProvider,
+  )
+    ? (providerRaw as ModelProvider)
+    : 'meta';
+
+  const def = APPROVED_PROVIDERS[provider];
+  if (!def) {
+    throw new Error(`Unsupported provider: ${providerRaw}`);
+  }
+
   const modeRaw = overrides?.mode ?? process.env['META_AI_MODE'] ?? 'mock';
   const mode: MetaAiMode = ['mock', 'live', 'disabled'].includes(modeRaw)
     ? (modeRaw as MetaAiMode)
     : 'mock';
 
-  const apiBaseUrl =
-    overrides?.apiBaseUrl ?? process.env['META_MODEL_API_BASE_URL'] ?? 'https://api.meta.ai/v1';
+  let endpoint: string;
+  if (overrides?.endpoint && overrides.endpoint.trim().length > 0) {
+    endpoint = overrides.endpoint.trim();
+  } else if (overrides?.apiBaseUrl && overrides.apiBaseUrl.trim().length > 0) {
+    const trimmed = overrides.apiBaseUrl.trim();
+    if (provider === 'meta' && !trimmed.endsWith('/responses')) {
+      endpoint = `${trimmed.replace(/\/$/, '')}/responses`;
+    } else {
+      endpoint = trimmed;
+    }
+  } else if (process.env['META_MODEL_API_ENDPOINT']) {
+    endpoint = process.env['META_MODEL_API_ENDPOINT']!.trim();
+  } else if (process.env['META_MODEL_API_BASE_URL']) {
+    const baseUrl = process.env['META_MODEL_API_BASE_URL']!.trim();
+    if (provider === 'meta' && !baseUrl.endsWith('/responses')) {
+      endpoint = `${baseUrl.replace(/\/$/, '')}/responses`;
+    } else {
+      endpoint = baseUrl;
+    }
+  } else {
+    endpoint = def.defaultEndpoint;
+  }
 
-  const apiKey =
-    overrides?.apiKey ?? process.env['META_MODEL_API_KEY'] ?? process.env['META_API_KEY'];
-  const model = overrides?.model ?? process.env['META_MODEL'] ?? 'muse-spark-1.3';
+  const apiBaseUrl =
+    overrides?.apiBaseUrl ??
+    (endpoint.endsWith('/responses') ? endpoint.slice(0, -10) : endpoint);
+
+  const apiKey = resolveProviderApiKey(provider, overrides?.apiKey);
+  const model = overrides?.model ?? process.env['META_MODEL'] ?? def.defaultModel;
 
   const maxOutputTokens =
     overrides?.maxOutputTokens ?? parseInt(process.env['META_MAX_OUTPUT_TOKENS'] ?? '1024', 10);
@@ -57,14 +101,19 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
     ? (reasoningEffortRaw as 'minimal' | 'low' | 'medium' | 'high')
     : 'minimal';
 
-  // If live mode is requested, an API key is required
-  if (mode === 'live' && (!apiKey || apiKey.trim().length === 0)) {
-    throw new Error(
-      'Cannot operate in live mode: META_MODEL_API_KEY is missing or empty. Please set META_MODEL_API_KEY or use mode=mock.',
-    );
+  // If live mode is requested, an API key is required and configuration must be allowlisted
+  if (mode === 'live') {
+    if (!apiKey || apiKey.trim().length === 0) {
+      throw new Error(
+        `Cannot operate in live mode: ${def.credentialEnvVar} is missing or empty. Please set ${def.credentialEnvVar} or use mode=mock.`,
+      );
+    }
+    validateProviderConfiguration(provider, endpoint, model);
   }
 
   return {
+    provider,
+    endpoint,
     apiBaseUrl,
     apiKey,
     model,

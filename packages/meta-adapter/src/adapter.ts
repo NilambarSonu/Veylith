@@ -1,20 +1,26 @@
 /**
- * Meta Muse Security Adapter.
+ * Meta Muse Security Adapter & Multi-Provider AI Security Boundary.
  *
  * Provides hybrid semantic inspection:
  * - 'disabled': Bypasses AI classification, zero overhead.
  * - 'mock': High-fidelity deterministic simulated inference for local tests.
- * - 'live': Real Meta Model API inference (POST /responses to https://api.meta.ai/v1).
+ * - 'live': Real provider inference (Meta Responses API, Fireworks AI, or Baseten).
  *
- * Implements strict trust separation (XML delimiters) and local budget caps.
+ * Implements strict trust separation (XML delimiters), credential routing,
+ * and local budget caps.
  */
 
 import { randomUUID } from 'node:crypto';
-import type { MetaAdapter, MetaAiMode, SemanticInspectionResult } from './types.js';
+import type { MetaAdapter, MetaAiMode, SemanticInspectionResult, ModelProvider } from './types.js';
 import { ModelClassificationSchema } from './types.js';
 import type { MetaAdapterConfig } from './config.js';
 import { loadMetaConfig } from './config.js';
 import { UsageTracker } from './tracker.js';
+import {
+  APPROVED_PROVIDERS,
+  validateProviderConfiguration,
+  sanitizeProviderError,
+} from './providers.js';
 
 /** Official Meta Responses API JSON Schema for structured classification. */
 export const CLASSIFICATION_JSON_SCHEMA = {
@@ -53,7 +59,15 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
 
   constructor(config?: Partial<MetaAdapterConfig>) {
     this.config = loadMetaConfig(config);
-    this.tracker = new UsageTracker(this.config.maxRequestsPerRun, this.config.dailyBudgetUsd);
+    const def = APPROVED_PROVIDERS[this.config.provider];
+    this.tracker = new UsageTracker({
+      maxRequestsPerRun: this.config.maxRequestsPerRun,
+      dailyBudgetUsd: this.config.dailyBudgetUsd,
+      pricingVerified: def?.pricingVerified ?? true,
+      standardInputPriceUsd: def?.pricing?.standardInputPriceUsd,
+      cachedInputPriceUsd: def?.pricing?.cachedInputPriceUsd,
+      outputTokenPriceUsd: def?.pricing?.outputTokenPriceUsd,
+    });
   }
 
   get mode(): MetaAiMode {
@@ -62,6 +76,10 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
 
   get model(): string {
     return this.config.model;
+  }
+
+  get provider(): ModelProvider {
+    return this.config.provider;
   }
 
   /**
@@ -86,6 +104,7 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
         durationMs: 0,
         mode: 'disabled',
         model: this.config.model,
+        provider: this.config.provider,
       };
     }
 
@@ -94,7 +113,7 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
       return this.runMockInference(content, stage, start);
     }
 
-    // 3. Live mode: invoke Meta Model API
+    // 3. Live mode: invoke AI security provider
     return this.runLiveInference(content, stage, metadata, start);
   }
 
@@ -223,11 +242,12 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
       durationMs,
       mode: 'mock',
       model: this.config.model,
+      provider: this.config.provider,
     };
   }
 
   /**
-   * Live inference calling Meta Model API (POST /responses).
+   * Live inference calling the configured AI security provider.
    */
   private async runLiveInference(
     content: string,
@@ -235,6 +255,12 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
     _metadata: Record<string, unknown> | undefined,
     start: number,
   ): Promise<SemanticInspectionResult> {
+    const def = APPROVED_PROVIDERS[this.config.provider];
+    const providerLabel = this.config.provider === 'meta' ? 'Meta model' : def.name;
+
+    // Strict destination and model allowlist enforcement
+    validateProviderConfiguration(this.config.provider, this.config.endpoint, this.config.model);
+
     // Check budget safeguard
     this.tracker.assertWithinBudget();
 
@@ -280,26 +306,22 @@ CRITICAL SCHEMA RULE: All properties are required. If content is benign or no su
 ${sanitizedUntrustedContent}
 </untrusted_content_${boundaryNonce}>`;
 
-    const endpoint = `${this.config.apiBaseUrl.replace(/\/$/, '')}/responses`;
+    const isChatCompletions = def.protocol === 'openai-chat-completions';
 
-    let extractedUsage: {
-      promptTokens: number;
-      outputTokens: number;
-      cachedPromptTokens: number;
-      reasoningTokens: number;
-    } | null = null;
-    let isProviderResponse = false;
+    const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
-    try {
-      const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.config.apiKey}`,
-        },
-        body: JSON.stringify({
+    const requestBody = isChatCompletions
+      ? JSON.stringify({
+          model: this.config.model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          response_format: { type: 'json_object' },
+          max_tokens: this.config.maxOutputTokens,
+          temperature: 0.0,
+        })
+      : JSON.stringify({
           model: this.config.model,
           input: fullPrompt,
           reasoning: {
@@ -314,112 +336,166 @@ ${sanitizedUntrustedContent}
           },
           max_output_tokens: this.config.maxOutputTokens,
           temperature: 0.0,
-        }),
+        });
+
+    let extractedUsage: {
+      promptTokens: number;
+      outputTokens: number;
+      cachedPromptTokens: number;
+      reasoningTokens: number;
+    } | null = null;
+    let isProviderResponse = false;
+
+    try {
+      const response = await fetch(this.config.endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.config.apiKey}`,
+        },
+        body: requestBody,
         signal: controller.signal,
       });
 
       if (!response.ok) {
-        throw new Error(`Meta API error: HTTP ${response.status} ${response.statusText}`);
+        const errorSource = this.config.provider === 'meta' ? 'Meta API' : def.name;
+        throw new Error(`${errorSource} error: HTTP ${response.status} ${response.statusText}`);
       }
 
       isProviderResponse = true;
-      const rawJson = (await response.json()) as {
-        status?: string;
-        finish_reason?: string;
-        incomplete_details?: Record<string, unknown>;
-        text?: string;
-        response?: string;
-        output?: Array<{
-          status?: string;
-          finish_reason?: string;
+      const rawJson = (await response.json()) as Record<string, unknown>;
+
+      let rawText = '';
+
+      if (isChatCompletions) {
+        // OpenAI Chat Completions protocol (Fireworks, Baseten)
+        const usageObj = rawJson['usage'] as
+          | { prompt_tokens?: number; completion_tokens?: number; input_tokens?: number; output_tokens?: number }
+          | undefined;
+
+        if (usageObj && typeof usageObj === 'object') {
+          const promptTokens = usageObj.prompt_tokens ?? usageObj.input_tokens ?? 0;
+          const outputTokens = usageObj.completion_tokens ?? usageObj.output_tokens ?? 0;
+          extractedUsage = {
+            promptTokens,
+            outputTokens,
+            cachedPromptTokens: 0,
+            reasoningTokens: 0,
+          };
+        }
+
+        const choices = rawJson['choices'] as Array<{
+          message?: { content?: string };
           text?: string;
-          content?: Array<{ type?: string; text?: string }> | string;
-        }>;
-        usage?: {
+          finish_reason?: string;
+        }> | undefined;
+
+        if (!Array.isArray(choices) || choices.length === 0) {
+          throw new Error(`${def.name} model returned no choices`);
+        }
+
+        const firstChoice = choices[0];
+        if (firstChoice?.finish_reason === 'length') {
+          throw new Error(
+            `${def.name} model response was truncated (finish_reason=length)`,
+          );
+        }
+
+        if (firstChoice?.message?.content && typeof firstChoice.message.content === 'string') {
+          rawText = firstChoice.message.content;
+        } else if (typeof firstChoice?.text === 'string') {
+          rawText = firstChoice.text;
+        }
+
+        if (!rawText || rawText.trim().length === 0) {
+          throw new Error(`${def.name} model returned empty response output`);
+        }
+      } else {
+        // Meta Responses API protocol
+        const usageObj = rawJson['usage'] as {
           input_tokens?: number;
           output_tokens?: number;
-          total_tokens?: number;
           input_tokens_details?: { cached_tokens?: number };
           output_tokens_details?: { reasoning_tokens?: number };
-          // Legacy / compatibility aliases:
           prompt_tokens?: number;
           completion_tokens?: number;
           cached_tokens?: number;
           reasoning_tokens?: number;
           prompt_tokens_details?: { cached_tokens?: number };
           completion_tokens_details?: { reasoning_tokens?: number };
-        };
-      };
+        } | undefined;
 
-      // 1. Extract provider usage metadata immediately if available
-      if (rawJson.usage && typeof rawJson.usage === 'object') {
-        const promptTokens = rawJson.usage.input_tokens ?? rawJson.usage.prompt_tokens ?? 0;
-        const cachedPromptTokens =
-          rawJson.usage.input_tokens_details?.cached_tokens ??
-          rawJson.usage.cached_tokens ??
-          rawJson.usage.prompt_tokens_details?.cached_tokens ??
-          0;
-        const outputTokens = rawJson.usage.output_tokens ?? rawJson.usage.completion_tokens ?? 0;
-        const reasoningTokens =
-          rawJson.usage.output_tokens_details?.reasoning_tokens ??
-          rawJson.usage.reasoning_tokens ??
-          rawJson.usage.completion_tokens_details?.reasoning_tokens ??
-          0;
+        if (usageObj && typeof usageObj === 'object') {
+          const promptTokens = usageObj.input_tokens ?? usageObj.prompt_tokens ?? 0;
+          const cachedPromptTokens =
+            usageObj.input_tokens_details?.cached_tokens ??
+            usageObj.cached_tokens ??
+            usageObj.prompt_tokens_details?.cached_tokens ??
+            0;
+          const outputTokens = usageObj.output_tokens ?? usageObj.completion_tokens ?? 0;
+          const reasoningTokens =
+            usageObj.output_tokens_details?.reasoning_tokens ??
+            usageObj.reasoning_tokens ??
+            usageObj.completion_tokens_details?.reasoning_tokens ??
+            0;
 
-        extractedUsage = {
-          promptTokens,
-          outputTokens,
-          cachedPromptTokens,
-          reasoningTokens,
-        };
-      }
+          extractedUsage = {
+            promptTokens,
+            outputTokens,
+            cachedPromptTokens,
+            reasoningTokens,
+          };
+        }
 
-      // 2. Check for incomplete or truncated status from Meta Responses API
-      const isStatusIncomplete =
-        rawJson.status === 'incomplete' ||
-        rawJson.status === 'failed' ||
-        rawJson.finish_reason === 'length' ||
-        Boolean(rawJson.incomplete_details) ||
-        (Array.isArray(rawJson.output) &&
-          rawJson.output.some((o) => o?.finish_reason === 'length' || o?.status === 'incomplete'));
+        const status = rawJson['status'];
+        const finishReason = rawJson['finish_reason'];
+        const incompleteDetails = rawJson['incomplete_details'];
+        const output = rawJson['output'] as Array<{ finish_reason?: string; status?: string; text?: string; content?: unknown }> | undefined;
 
-      if (isStatusIncomplete) {
-        throw new Error(
-          'Meta model response was truncated or marked incomplete (finish_reason=length)',
-        );
-      }
+        const isStatusIncomplete =
+          status === 'incomplete' ||
+          status === 'failed' ||
+          finishReason === 'length' ||
+          Boolean(incompleteDetails) ||
+          (Array.isArray(output) &&
+            output.some((o) => o?.finish_reason === 'length' || o?.status === 'incomplete'));
 
-      // 3. Extract model text from Meta Responses format (output[].content[].text) or standard fields
-      let rawText = '';
-      if (typeof rawJson.text === 'string' && rawJson.text.trim().length > 0) {
-        rawText = rawJson.text;
-      } else if (typeof rawJson.response === 'string' && rawJson.response.trim().length > 0) {
-        rawText = rawJson.response;
-      } else if (Array.isArray(rawJson.output) && rawJson.output.length > 0) {
-        for (const item of rawJson.output) {
-          if (typeof item === 'string') {
-            rawText += item;
-          } else if (item && typeof item === 'object') {
-            if (typeof item.text === 'string') {
-              rawText += item.text;
-            } else if (Array.isArray(item.content)) {
-              for (const part of item.content) {
-                if (part && typeof part.text === 'string') {
-                  rawText += part.text;
+        if (isStatusIncomplete) {
+          throw new Error(
+            'Meta model response was truncated or marked incomplete (finish_reason=length)',
+          );
+        }
+
+        if (typeof rawJson['text'] === 'string' && (rawJson['text'] as string).trim().length > 0) {
+          rawText = rawJson['text'] as string;
+        } else if (typeof rawJson['response'] === 'string' && (rawJson['response'] as string).trim().length > 0) {
+          rawText = rawJson['response'] as string;
+        } else if (Array.isArray(output) && output.length > 0) {
+          for (const item of output) {
+            if (typeof item === 'string') {
+              rawText += item;
+            } else if (item && typeof item === 'object') {
+              if (typeof item.text === 'string') {
+                rawText += item.text;
+              } else if (Array.isArray(item.content)) {
+                for (const part of item.content as Array<{ text?: string }>) {
+                  if (part && typeof part.text === 'string') {
+                    rawText += part.text;
+                  }
                 }
+              } else if (typeof item.content === 'string') {
+                rawText += item.content;
               }
-            } else if (typeof item.content === 'string') {
-              rawText += item.content;
             }
           }
         }
+
+        if (!rawText || rawText.trim().length === 0) {
+          throw new Error('Meta model returned empty response output');
+        }
       }
 
-      if (!rawText || rawText.trim().length === 0) {
-        throw new Error('Meta model returned empty response output');
-      }
-
-      // 4. Parse JSON without fabricating / repairing truncated outputs
+      // Parse JSON without fabricating / repairing truncated outputs
       const unverifiedJson = this.extractJson(rawText);
       const parseResult = ModelClassificationSchema.safeParse(unverifiedJson);
 
@@ -463,6 +539,7 @@ ${sanitizedUntrustedContent}
         durationMs,
         mode: 'live',
         model: this.config.model,
+        provider: this.config.provider,
       };
     } catch (err) {
       const durationMs = Math.round((performance.now() - start) * 100) / 100;
@@ -480,15 +557,13 @@ ${sanitizedUntrustedContent}
       );
 
       const errMsg = err instanceof Error ? err.message : String(err);
-      const sanitizedErrMsg = errMsg
-        .replace(/(?:Bearer\s+)[a-zA-Z0-9_\-.]+/gi, 'Bearer [REDACTED]')
-        .replace(/\bsk-[a-zA-Z0-9_\-.]+/gi, 'sk-[REDACTED]');
+      const sanitizedErrMsg = sanitizeProviderError(errMsg, this.config.apiKey);
 
       return {
         flagged: true,
         threatCategory: 'none',
         action: 'review',
-        explanation: `Meta model outage / classification error: ${sanitizedErrMsg}`,
+        explanation: `${providerLabel} outage / classification error: ${sanitizedErrMsg}`,
         confidence: 0.0,
         evidence: ['Classifier fallback due to error or incomplete response'],
         tokenUsage: extractedUsage
@@ -504,6 +579,7 @@ ${sanitizedUntrustedContent}
         durationMs,
         mode: 'live',
         model: this.config.model,
+        provider: this.config.provider,
       };
     } finally {
       clearTimeout(timeout);

@@ -1,5 +1,5 @@
 /**
- * Local usage, cost, and budget tracker for Meta Muse inference.
+ * Local usage, cost, and budget tracker for AI security inference providers.
  *
  * Provides application-level safeguards against unexpected API spend.
  * Official Pricing for Meta Muse Spark 1.3 (Standard Mode):
@@ -20,6 +20,15 @@ export interface TokenUsageMetrics {
   reasoningTokens?: number;
 }
 
+export interface UsageTrackerOptions {
+  readonly maxRequestsPerRun?: number;
+  readonly dailyBudgetUsd?: number;
+  readonly pricingVerified?: boolean;
+  readonly standardInputPriceUsd?: number;
+  readonly cachedInputPriceUsd?: number;
+  readonly outputTokenPriceUsd?: number;
+}
+
 export interface UsageReport {
   readonly requestCount: number;
   readonly completedProviderRequests: number;
@@ -34,6 +43,8 @@ export interface UsageReport {
   readonly hasUnknownUsage: boolean;
   readonly unknownUsageCount: number;
   readonly estimatedCostUsd: number;
+  readonly pricingVerified: boolean;
+  readonly hasUnverifiedPricing: boolean;
   readonly averageLatencyMs: number;
   readonly maxRequestsPerRun: number;
   readonly dailyBudgetUsd: number;
@@ -54,15 +65,36 @@ export class UsageTracker {
   private totalLatencyMs = 0;
   private latencyRecordedCount = 0;
 
-  // Official Pricing constants (USD per token)
-  private readonly standardInputPriceUsd = 0.00000125; // $1.25 / 1M
-  private readonly cachedInputPriceUsd = 0.00000015; // $0.15 / 1M
-  private readonly outputTokenPriceUsd = 0.00000425; // $4.25 / 1M (output rate covering completion & reasoning)
+  private readonly maxRequestsPerRun: number;
+  private readonly dailyBudgetUsd: number;
+  public readonly pricingVerified: boolean;
+  private readonly standardInputPriceUsd: number;
+  private readonly cachedInputPriceUsd: number;
+  private readonly outputTokenPriceUsd: number;
 
   constructor(
-    private readonly maxRequestsPerRun: number = 10,
-    private readonly dailyBudgetUsd: number = 0.25,
-  ) {}
+    maxRequestsOrOptions: number | UsageTrackerOptions = 10,
+    dailyBudgetUsd = 0.25,
+  ) {
+    if (typeof maxRequestsOrOptions === 'object') {
+      this.maxRequestsPerRun = maxRequestsOrOptions.maxRequestsPerRun ?? 10;
+      this.dailyBudgetUsd = maxRequestsOrOptions.dailyBudgetUsd ?? 0.25;
+      this.pricingVerified = maxRequestsOrOptions.pricingVerified ?? true;
+      this.standardInputPriceUsd =
+        maxRequestsOrOptions.standardInputPriceUsd ?? 0.00000125;
+      this.cachedInputPriceUsd =
+        maxRequestsOrOptions.cachedInputPriceUsd ?? 0.00000015;
+      this.outputTokenPriceUsd =
+        maxRequestsOrOptions.outputTokenPriceUsd ?? 0.00000425;
+    } else {
+      this.maxRequestsPerRun = maxRequestsOrOptions;
+      this.dailyBudgetUsd = dailyBudgetUsd;
+      this.pricingVerified = true;
+      this.standardInputPriceUsd = 0.00000125;
+      this.cachedInputPriceUsd = 0.00000015;
+      this.outputTokenPriceUsd = 0.00000425;
+    }
+  }
 
   /**
    * Pre-check before executing an inference request.
@@ -75,11 +107,13 @@ export class UsageTracker {
       );
     }
 
-    const currentCost = this.getEstimatedCostUsd();
-    if (currentCost >= this.dailyBudgetUsd) {
-      throw new Error(
-        `Local budget safeguard: Daily budget cap reached ($${currentCost.toFixed(4)} >= $${this.dailyBudgetUsd.toFixed(4)}). Inference blocked.`,
-      );
+    if (this.pricingVerified) {
+      const currentCost = this.getEstimatedCostUsd();
+      if (currentCost >= this.dailyBudgetUsd) {
+        throw new Error(
+          `Local budget safeguard: Daily budget cap reached ($${currentCost.toFixed(4)} >= $${this.dailyBudgetUsd.toFixed(4)}). Inference blocked.`,
+        );
+      }
     }
   }
 
@@ -173,6 +207,8 @@ export class UsageTracker {
       hasUnknownUsage: this.hasUnknownUsage,
       unknownUsageCount: this.unknownUsageCount,
       estimatedCostUsd: Math.round(this.getEstimatedCostUsd() * 1000000) / 1000000,
+      pricingVerified: this.pricingVerified,
+      hasUnverifiedPricing: !this.pricingVerified,
       averageLatencyMs: Math.round(avgLatency * 100) / 100,
       maxRequestsPerRun: this.maxRequestsPerRun,
       dailyBudgetUsd: this.dailyBudgetUsd,

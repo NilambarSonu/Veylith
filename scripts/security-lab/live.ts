@@ -1,4 +1,9 @@
 import { toolMetadataText } from '../../packages/policy-engine/src/index.js';
+import {
+  APPROVED_PROVIDERS,
+  type ModelProvider,
+  resolveProviderApiKey,
+} from '../../packages/meta-adapter/src/index.js';
 /** Manual-only real-provider evaluation. No keys read from disk; no retries. */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -13,6 +18,14 @@ const number = (name: string) =>
   Number(args.find((v) => v.startsWith(`--${name}=`))?.split('=')[1]);
 if (!args.includes('--allow-paid'))
   throw new Error('Manual founder authorization required: --allow-paid. No provider request made.');
+const providerArg = args.find((v) => v.startsWith('--provider='))?.split('=')[1] ?? 'meta';
+const provider = (['meta', 'fireworks', 'baseten'] as const).includes(providerArg as ModelProvider)
+  ? (providerArg as ModelProvider)
+  : null;
+if (!provider) {
+  throw new Error(`Unsupported provider: ${providerArg}. Supported: meta, fireworks, baseten`);
+}
+const def = APPROVED_PROVIDERS[provider];
 const maxRequests = number('max-requests'),
   maxTokens = number('max-total-tokens'),
   maxCost = number('max-cost-usd');
@@ -36,8 +49,9 @@ if (
   throw new Error(
     'Specify bounded request/token/cost limits and current USD-per-million input/output/cached rates.',
   );
-if (!process.env['META_MODEL_API_KEY'])
-  throw new Error('Enter the key locally using the documented silent terminal prompt.');
+const credentialKey = resolveProviderApiKey(provider);
+if (!credentialKey)
+  throw new Error(`Enter the key locally using the documented silent terminal prompt: ${def.credentialEnvVar}`);
 const integrity = verifyManifest();
 const destination = 'security-lab/live-results';
 mkdirSync(destination, { recursive: true });
@@ -51,6 +65,8 @@ writeFileSync(
   JSON.stringify({
     gitCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
     manifestSha256: integrity.manifestSha256,
+    provider: def.id,
+    model: def.defaultModel,
     maxRequests,
     maxTokens,
     maxCost,
@@ -78,14 +94,17 @@ function knownCost() {
     const u = entry['providerUsage'] as {
       input_tokens?: number;
       output_tokens?: number;
+      prompt_tokens?: number;
+      completion_tokens?: number;
       input_tokens_details?: { cached_tokens?: number };
     } | null;
     if (!u || entry['usageKnown'] !== true) return sum;
-    const input = u.input_tokens ?? 0,
+    const input = u.input_tokens ?? u.prompt_tokens ?? 0,
       cached = u.input_tokens_details?.cached_tokens ?? 0;
+    const output = u.output_tokens ?? u.completion_tokens ?? 0;
     return (
       sum +
-      ((input - cached) * inputRate + cached * cachedRate + (u.output_tokens ?? 0) * outputRate) /
+      ((input - cached) * inputRate + cached * cachedRate + output * outputRate) /
         1e6
     );
   }, 0);
@@ -96,19 +115,29 @@ globalThis.fetch = async (input, init) => {
     typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
   );
   if (url.hostname === '127.0.0.1') return nativeFetch(input, init);
-  if (url.href !== 'https://api.meta.ai/v1/responses' || init?.method !== 'POST')
+  if (!def.approvedEndpoints.includes(url.href) || init?.method !== 'POST')
     throw new Error('Live lab forbids unexpected provider destinations');
   const payload = JSON.parse(String(init.body));
-  if (
-    payload.model !== 'muse-spark-1.3' ||
-    typeof payload.input !== 'string' ||
-    payload.input.length > 12000 ||
-    payload.max_output_tokens !== 512
-  )
-    throw new Error('Unexpected model or payload budget');
-  // UTF-8 byte count is a deliberately conservative input-token reservation, not known usage.
-  const inputBound = Buffer.byteLength(payload.input),
-    tokenBound = inputBound + 512;
+  if (!def.approvedModels.includes(payload.model))
+    throw new Error('Unexpected model');
+
+  let inputBound: number;
+  if (typeof payload.input === 'string') {
+    if (payload.input.length > 12000) throw new Error('Payload input exceeds length limit');
+    inputBound = Buffer.byteLength(payload.input);
+  } else if (Array.isArray(payload.messages)) {
+    const combined = payload.messages.map((m: { content?: string }) => m.content ?? '').join('');
+    if (combined.length > 12000) throw new Error('Payload input exceeds length limit');
+    inputBound = Buffer.byteLength(combined);
+  } else {
+    throw new Error('Unexpected payload format');
+  }
+
+  const maxOutputTokens = payload.max_output_tokens ?? payload.max_tokens;
+  if (maxOutputTokens !== 512)
+    throw new Error('Unexpected output token limit');
+
+  const tokenBound = inputBound + 512;
   const costBound = (inputBound * inputRate + 512 * outputRate) / 1e6;
   if (
     attemptedRequests >= maxRequests ||
@@ -133,10 +162,16 @@ globalThis.fetch = async (input, init) => {
     entry['httpStatus'] = response.status;
     try {
       const body = (await response.clone().json()) as Record<string, unknown>;
-      entry['providerUsage'] = body['usage'] ?? null;
-      const u = body['usage'] as { input_tokens?: unknown; output_tokens?: unknown } | undefined;
-      entry['usageKnown'] =
-        typeof u?.input_tokens === 'number' && typeof u?.output_tokens === 'number';
+      const rawUsage = body['usage'] as Record<string, unknown> | undefined;
+      entry['providerUsage'] = rawUsage ?? null;
+      if (rawUsage && typeof rawUsage === 'object') {
+        const inputTokens = rawUsage['input_tokens'] ?? rawUsage['prompt_tokens'];
+        const outputTokens = rawUsage['output_tokens'] ?? rawUsage['completion_tokens'];
+        entry['usageKnown'] =
+          typeof inputTokens === 'number' && typeof outputTokens === 'number';
+      } else {
+        entry['usageKnown'] = false;
+      }
       entry['providerStatus'] = body['status'] ?? null;
     } catch {
       entry['usageKnown'] = false;
@@ -156,8 +191,9 @@ Object.assign(process.env, {
   GATEWAY_HOST: '127.0.0.1',
   UPSTREAM_MCP_URL: fixture.url,
   META_AI_MODE: 'live',
-  META_MODEL: 'muse-spark-1.3',
-  META_MODEL_API_BASE_URL: 'https://api.meta.ai/v1',
+  META_AI_PROVIDER: provider,
+  META_MODEL: def.defaultModel,
+  META_MODEL_API_BASE_URL: def.defaultEndpoint,
   META_MAX_OUTPUT_TOKENS: '512',
   META_MAX_REQUESTS_PER_RUN: String(maxRequests),
   META_DAILY_BUDGET_USD: String(maxCost),
@@ -294,7 +330,8 @@ try {
         `${destination}/results.json`,
         JSON.stringify(
           {
-            model: 'muse-spark-1.3',
+            provider: def.id,
+            model: def.defaultModel,
             outputs,
             usage,
             attemptedRequests,

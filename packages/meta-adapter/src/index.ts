@@ -1,8 +1,8 @@
 /**
- * @veylith/meta-adapter — Meta Muse security inspection adapter.
+ * @veylith/meta-adapter — AI Security Inspection Adapter.
  *
- * Implements the semantic inspection boundary powered by Meta Muse (muse-spark-1.3).
- * Supports 'mock' (offline test simulation), 'live' (real API with budget controls),
+ * Implements the semantic inspection boundary powered by Meta Muse (muse-spark-1.3),
+ * Fireworks AI, or Baseten. Supports 'mock' (offline test simulation), 'live' (real API with budget controls),
  * and 'disabled' modes.
  */
 
@@ -12,11 +12,28 @@ export type {
   MetaAiMode,
   TokenUsage,
   ModelClassification,
+  ModelProvider,
 } from './types.js';
 export { ModelClassificationSchema } from './types.js';
+export type {
+  ProviderProtocol,
+  ProviderDefinition,
+  ProviderPricing,
+} from './providers.js';
+export {
+  APPROVED_PROVIDERS,
+  validateProviderConfiguration,
+  isLoopbackEndpoint,
+  resolveProviderApiKey,
+  sanitizeProviderError,
+} from './providers.js';
 export type { MetaAdapterConfig } from './config.js';
 export { loadMetaConfig } from './config.js';
-export type { UsageReport, TokenUsageMetrics } from './tracker.js';
+export type {
+  UsageReport,
+  TokenUsageMetrics,
+  UsageTrackerOptions,
+} from './tracker.js';
 export { UsageTracker } from './tracker.js';
 export { MetaMuseSecurityAdapter, CLASSIFICATION_JSON_SCHEMA } from './adapter.js';
 

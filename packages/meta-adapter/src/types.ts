@@ -4,6 +4,9 @@
 
 import * as z from 'zod/v4';
 import type { ThreatCategory, PolicyAction } from '@veylith/core';
+import type { ModelProvider } from './providers.js';
+
+export type { ModelProvider } from './providers.js';
 
 /** Supported operating modes for semantic analysis. */
 export type MetaAiMode = 'mock' | 'live' | 'disabled';
@@ -49,6 +52,7 @@ export interface SemanticInspectionResult {
   readonly durationMs: number;
   readonly mode: MetaAiMode;
   readonly model: string;
+  readonly provider?: ModelProvider;
   readonly hasUnknownUsage?: boolean;
 }
 
@@ -56,6 +60,7 @@ export interface SemanticInspectionResult {
 export interface MetaAdapter {
   readonly mode: MetaAiMode;
   readonly model: string;
+  readonly provider?: ModelProvider;
   inspect(
     content: string,
     stage: 'discovery' | 'call_arguments' | 'call_response',
