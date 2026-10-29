@@ -1,9 +1,128 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
+import { createHash } from 'node:crypto';
 import * as z from 'zod/v4';
 import type { DashboardConfig } from './config.js';
 import { redactSecrets } from './security.js';
+
+// --- Cryptographic Chain & Canonical Serialization Utilities ---
+
+export const GENESIS_HASH = '0'.repeat(64);
+
+export interface ChainVerificationResult {
+  valid: boolean;
+  totalRecords: number;
+  tamperedIndex?: number;
+  error?: string;
+}
+
+export interface ChainVerificationSummary {
+  verified: boolean;
+  structure: 'multi-case-observation-log' | 'single-daemon-chain';
+  totalChainsEvaluated: number;
+  validChains: number;
+  totalRecords: number;
+  hashAlgorithm: string;
+  genesisHash: string;
+  tamperedCaseId?: string;
+  tamperedIndex?: number;
+  error?: string;
+}
+
+/**
+ * Deterministically serializes an object with recursively sorted keys to guarantee
+ * identical canonical JSON across platforms and Node versions.
+ */
+export function canonicalJson(obj: unknown): string {
+  if (obj === null || typeof obj !== 'object') {
+    return JSON.stringify(obj);
+  }
+
+  if (Array.isArray(obj)) {
+    return `[${obj.map(canonicalJson).join(',')}]`;
+  }
+
+  const entries = Object.entries(obj as Record<string, unknown>)
+    .filter(([_, v]) => v !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`;
+}
+
+/**
+ * Computes the SHA-256 hash of an audit event given the previous hash and event payload.
+ */
+export function computeEventHash(
+  previousHash: string,
+  eventData: Omit<AuditRecord, 'currentEventHash'>,
+): string {
+  // Strip caseId if present when computing hash to preserve matching with engine's eventData
+  const cleanData: Record<string, unknown> = { ...(eventData as Record<string, unknown>) };
+  delete cleanData['caseId'];
+  const serialized = canonicalJson(cleanData);
+  return createHash('sha256').update(`${previousHash}:${serialized}`).digest('hex');
+}
+
+/**
+ * Verifies the cryptographic integrity of an audit chain using the AuditLogChain algorithm.
+ */
+export function verifyAuditChain(
+  records: readonly AuditRecord[],
+  checkpoint?: { nextSequenceNumber: number; previousEventHash: string },
+): ChainVerificationResult {
+  const start = checkpoint ?? { nextSequenceNumber: 0, previousEventHash: GENESIS_HASH };
+  let expectedPreviousHash = start.previousEventHash;
+
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i]!;
+
+    // 1. Check sequence number continuity
+    if (record.sequenceNumber !== i + start.nextSequenceNumber) {
+      return {
+        valid: false,
+        totalRecords: records.length,
+        tamperedIndex: i,
+        error: `Sequence number mismatch at index ${i}: expected ${i + start.nextSequenceNumber}, found ${record.sequenceNumber}`,
+      };
+    }
+
+    // 2. Check previous hash continuity
+    if (record.previousEventHash !== expectedPreviousHash) {
+      return {
+        valid: false,
+        totalRecords: records.length,
+        tamperedIndex: i,
+        error: `Broken chain link at index ${i}: previousEventHash does not match expected hash`,
+      };
+    }
+
+    // 3. Recompute and verify current hash
+    const recordWithoutHash: Record<string, unknown> = { ...record };
+    delete recordWithoutHash['currentEventHash'];
+    delete recordWithoutHash['caseId'];
+    const recomputedHash = computeEventHash(
+      expectedPreviousHash,
+      recordWithoutHash as Omit<AuditRecord, 'currentEventHash'>,
+    );
+
+    if (record.currentEventHash !== recomputedHash) {
+      return {
+        valid: false,
+        totalRecords: records.length,
+        tamperedIndex: i,
+        error: `Hash mismatch at index ${i}: payload was modified after creation`,
+      };
+    }
+
+    expectedPreviousHash = record.currentEventHash;
+  }
+
+  return {
+    valid: true,
+    totalRecords: records.length,
+  };
+}
 
 // --- Zod Schemas ---
 
@@ -83,6 +202,7 @@ export const ReliabilityProbeSchema = z.object({
 });
 
 export const AuditRecordSchema = z.object({
+  caseId: z.string().optional(),
   sequenceNumber: z.number(),
   eventId: z.string(),
   timestamp: z.string(),
@@ -300,6 +420,7 @@ export class EvidenceLoader {
 
   /**
    * Load audit records from checked-in progress JSONL files or local runtime log.
+   * Performs genuine cryptographic SHA-256 chain verification using the AuditLogChain algorithm.
    */
   public getAuditRecords(options: {
     source?: string;
@@ -309,6 +430,9 @@ export class EvidenceLoader {
     stage?: string;
     method?: string;
     search?: string;
+    caseId?: string;
+    sortOrder?: 'asc' | 'desc';
+    raw?: boolean;
   }): {
     records: AuditRecord[];
     total: number;
@@ -317,6 +441,7 @@ export class EvidenceLoader {
     source: string;
     chainVerified: boolean;
     verificationError?: string;
+    chainVerification: ChainVerificationSummary;
   } {
     const sourceKey = options.source ?? 'phase-2f-mock-semantic';
     let targetFile = '';
@@ -366,23 +491,59 @@ export class EvidenceLoader {
         source: sourceKey,
         chainVerified: false,
         verificationError: `Evidence source file not found: ${targetFile}`,
+        chainVerification: {
+          verified: false,
+          structure: 'multi-case-observation-log',
+          totalChainsEvaluated: 0,
+          validChains: 0,
+          totalRecords: 0,
+          hashAlgorithm: 'SHA-256 (canonical deterministic JSON)',
+          genesisHash: GENESIS_HASH,
+          error: `Evidence source file not found: ${targetFile}`,
+        },
       };
     }
 
     const rawContent = fs.readFileSync(targetFile, 'utf8');
     const lines = rawContent.split('\n').filter((l) => l.trim().length > 0);
     const allRecords: AuditRecord[] = [];
+    let totalChainsEvaluated = 0;
+    let validChains = 0;
+    let chainVerified = true;
+    let verificationError: string | undefined;
+    let tamperedCaseId: string | undefined;
+    let tamperedIndex: number | undefined;
 
     for (const line of lines) {
       try {
         const item = JSON.parse(line);
         if (item.evidence && Array.isArray(item.evidence.audit)) {
+          totalChainsEvaluated++;
+          const caseAuditRecords: AuditRecord[] = [];
           for (const rec of item.evidence.audit) {
-            const parsed = AuditRecordSchema.safeParse(rec);
+            const parsed = AuditRecordSchema.safeParse({
+              ...rec,
+              caseId: item.id,
+            });
             if (parsed.success) {
-              allRecords.push(parsed.data);
+              caseAuditRecords.push(parsed.data);
             }
           }
+
+          // Cryptographic verification of this case's chain
+          const check = verifyAuditChain(caseAuditRecords);
+          if (!check.valid) {
+            chainVerified = false;
+            if (!verificationError) {
+              verificationError = `Chain verification failed for case ${item.id}: ${check.error}`;
+              tamperedCaseId = item.id;
+              tamperedIndex = check.tamperedIndex;
+            }
+          } else {
+            validChains++;
+          }
+
+          allRecords.push(...caseAuditRecords);
         }
       } catch {
         // Skip malformed individual line in progress file
@@ -391,6 +552,9 @@ export class EvidenceLoader {
 
     // Filter
     let filtered = allRecords;
+    if (options.caseId && options.caseId !== 'all') {
+      filtered = filtered.filter((r) => r.caseId === options.caseId);
+    }
     if (options.decision && options.decision !== 'all') {
       filtered = filtered.filter(
         (r) => r.decision.toLowerCase() === options.decision?.toLowerCase(),
@@ -411,32 +575,92 @@ export class EvidenceLoader {
           r.eventId.toLowerCase().includes(q) ||
           r.targetName?.toLowerCase().includes(q) ||
           r.reasonCode.toLowerCase().includes(q) ||
-          r.mcpMethod.toLowerCase().includes(q),
+          r.mcpMethod.toLowerCase().includes(q) ||
+          r.caseId?.toLowerCase().includes(q),
       );
     }
 
-    // Sort by sequence or timestamp descending
-    filtered.sort((a, b) => b.sequenceNumber - a.sequenceNumber);
+    // Sort
+    const sortOrder = options.sortOrder ?? 'desc';
+    filtered.sort((a, b) =>
+      sortOrder === 'asc'
+        ? a.sequenceNumber - b.sequenceNumber
+        : b.sequenceNumber - a.sequenceNumber,
+    );
 
     // Pagination
     const page = Math.max(1, options.page ?? 1);
-    const limit = Math.min(100, Math.max(5, options.limit ?? 25));
+    const maxLimit = options.caseId ? 1000 : 100;
+    const defaultLimit = options.caseId ? 1000 : 25;
+    const limit = Math.min(maxLimit, Math.max(1, options.limit ?? defaultLimit));
     const total = filtered.length;
     const totalPages = Math.ceil(total / limit);
     const offset = (page - 1) * limit;
     const paginated = filtered.slice(offset, offset + limit);
 
-    // Redact secrets on output records
-    const redactedRecords = paginated.map((r) => redactSecrets(r));
+    // Redact secrets on output records unless raw is explicitly requested
+    const outputRecords = options.raw ? paginated : paginated.map((r) => redactSecrets(r));
 
     return {
-      records: redactedRecords,
+      records: outputRecords,
       total,
       page,
       totalPages,
       source: sourceKey,
-      chainVerified: true,
+      chainVerified,
+      verificationError,
+      chainVerification: {
+        verified: chainVerified,
+        structure: 'multi-case-observation-log',
+        totalChainsEvaluated,
+        validChains,
+        totalRecords: allRecords.length,
+        hashAlgorithm: 'SHA-256 (canonical deterministic JSON)',
+        genesisHash: GENESIS_HASH,
+        tamperedCaseId,
+        tamperedIndex,
+        error: verificationError,
+      },
     };
+  }
+
+  /**
+   * Retrieves the full, continuous chronological audit trail for a single evaluation case.
+   */
+  public getCaseAuditTrail(
+    caseId: string,
+    source?: string,
+    options?: { raw?: boolean },
+  ): AuditRecord[] {
+    const res = this.getAuditRecords({
+      source,
+      caseId,
+      limit: 1000,
+      page: 1,
+      sortOrder: 'asc',
+      raw: options?.raw ?? false,
+    });
+    return res.records;
+  }
+
+  /**
+   * Directly verify any given array of audit records with optional checkpoint.
+   */
+  public verifyAuditChain(
+    records: readonly AuditRecord[],
+    checkpoint?: { nextSequenceNumber: number; previousEventHash: string },
+  ): ChainVerificationResult {
+    return verifyAuditChain(records, checkpoint);
+  }
+
+  /**
+   * Recompute event hash using SHA-256 canonical deterministic JSON format.
+   */
+  public computeEventHash(
+    previousHash: string,
+    eventData: Omit<AuditRecord, 'currentEventHash'>,
+  ): string {
+    return computeEventHash(previousHash, eventData);
   }
 
   /**

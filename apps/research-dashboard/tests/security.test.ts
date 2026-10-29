@@ -75,6 +75,23 @@ describe('Veylith Research Dashboard — Security & Redaction Boundaries', () =>
       expect(res.reason).toContain('Host port must match 8789');
     });
 
+    it('rejects Host headers with user credentials (user:pass@loopback)', () => {
+      const req = createMockRequest('127.0.0.1', 'alice:secret@127.0.0.1:8789');
+      const res = validateLoopbackAccess(req, 8789);
+      expect(res.allowed).toBe(false);
+      expect(res.reason).toContain('userinfo');
+    });
+
+    it('rejects Host headers with query string or hash fragment', () => {
+      const reqQuery = createMockRequest('127.0.0.1', '127.0.0.1:8789?param=val');
+      const resQuery = validateLoopbackAccess(reqQuery, 8789);
+      expect(resQuery.allowed).toBe(false);
+
+      const reqHash = createMockRequest('127.0.0.1', '127.0.0.1:8789#fragment');
+      const resHash = validateLoopbackAccess(reqHash, 8789);
+      expect(resHash.allowed).toBe(false);
+    });
+
     it('rejects untrusted Cross-Origin Origin header', () => {
       const req = createMockRequest(
         '127.0.0.1',

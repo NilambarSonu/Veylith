@@ -126,11 +126,67 @@ describe('Veylith Research Dashboard — Evidence Loader & Schema Verification',
     expect(res.records.length).toBeLessThanOrEqual(10);
     expect(res.total).toBeGreaterThan(0);
     expect(res.chainVerified).toBe(true);
+    expect(res.chainVerification).toBeDefined();
+    expect(res.chainVerification.totalChainsEvaluated).toBe(72);
+    expect(res.chainVerification.validChains).toBe(72);
 
     const first = res.records[0]!;
     expect(first.sequenceNumber).toBeDefined();
     expect(first.currentEventHash).toBeDefined();
     expect(first.previousEventHash).toBeDefined();
+    expect(first.caseId).toBeDefined();
+  });
+
+  describe('Cryptographic SHA-256 Audit Chain Verification', () => {
+    it('cryptographically verifies valid in-memory audit chains', () => {
+      // Get the continuous chronological audit trail for the first case (VEY-2E-E1-01) with unredacted data
+      const caseRecords = loader.getCaseAuditTrail('VEY-2E-E1-01', undefined, { raw: true });
+      expect(caseRecords.length).toBeGreaterThan(0);
+      expect(caseRecords[0]!.sequenceNumber).toBe(0);
+
+      const check = loader.verifyAuditChain(caseRecords);
+      expect(check.valid).toBe(true);
+      expect(check.totalRecords).toBe(caseRecords.length);
+    });
+
+    it('cryptographically detects tampered audit event payload', () => {
+      const caseRecords = loader.getCaseAuditTrail('VEY-2E-E1-01', undefined, { raw: true });
+
+      // Clone and tamper with payload
+      const tampered = structuredClone(caseRecords);
+      tampered[0]!.decision = 'block'; // modify decision payload without recomputing hash
+
+      const check = loader.verifyAuditChain(tampered);
+      expect(check.valid).toBe(false);
+      expect(check.tamperedIndex).toBe(0);
+      expect(check.error).toContain('Hash mismatch');
+    });
+
+    it('cryptographically detects broken previousEventHash link', () => {
+      const caseRecords = loader.getCaseAuditTrail('VEY-2E-E1-01', undefined, { raw: true });
+      expect(caseRecords.length).toBeGreaterThanOrEqual(2);
+
+      const broken = structuredClone(caseRecords);
+      broken[1]!.previousEventHash = '1'.repeat(64);
+
+      const check = loader.verifyAuditChain(broken);
+      expect(check.valid).toBe(false);
+      expect(check.tamperedIndex).toBe(1);
+      expect(check.error).toContain('Broken chain link');
+    });
+
+    it('cryptographically detects skipped sequence numbers', () => {
+      const caseRecords = loader.getCaseAuditTrail('VEY-2E-E1-01', undefined, { raw: true });
+      expect(caseRecords.length).toBeGreaterThanOrEqual(2);
+
+      const skipped = structuredClone(caseRecords);
+      skipped[1]!.sequenceNumber = 999;
+
+      const check = loader.verifyAuditChain(skipped);
+      expect(check.valid).toBe(false);
+      expect(check.tamperedIndex).toBe(1);
+      expect(check.error).toContain('Sequence number mismatch');
+    });
   });
 
   it('loads the 8 documented unresolved security findings', () => {

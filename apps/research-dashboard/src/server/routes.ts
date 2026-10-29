@@ -46,6 +46,34 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
       return;
     }
 
+    const rawUrl = req.url ?? '/';
+    let safePathname: string;
+    try {
+      safePathname = decodeURIComponent(rawUrl.split('?')[0] ?? '/');
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Bad Request', message: 'Malformed URL path' }));
+      return;
+    }
+
+    // Universal Path Traversal Guard: reject directory traversal attempts
+    if (
+      rawUrl.includes('..') ||
+      rawUrl.includes('%2e') ||
+      rawUrl.includes('%2E') ||
+      safePathname.includes('..') ||
+      safePathname.includes('\0')
+    ) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          error: 'Forbidden',
+          message: 'Access denied: path traversal attempt',
+        }),
+      );
+      return;
+    }
+
     const reqUrl = new URL(req.url ?? '/', `http://${req.headers['host'] ?? '127.0.0.1'}`);
     const pathname = reqUrl.pathname;
 
@@ -73,20 +101,27 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
           provenance: {
             baseCommit: '82b492a5d8c8ae54d2b7974df342e976914a7c49',
             evaluatedSourceCommit: '36fa675051f85437db55a5ccfff6ce18b7791392',
-            manifestSha256: manifest.files['holdout.json'] ? '9e9c3631be67...' : 'verified',
+            phase2fArchiveCommit: '8cdd2a647acf2f31b6ca766e83f7531e68ce2046',
+            phase3DashboardCommit: '0650d233337de0200f22bcd21ada28d08923afac',
+            manifestSha256: '2270b7052e864a84ec28f38fbd15eeed1ccb50447e0ce934de0d508f2337d89c',
             workingTreeStatus: 'clean',
           },
           metricsSummary: {
             principalScenarios: scenarios.length,
             offlineVariants: manifest.offlineVariants,
+            generatedG1Variants: 16,
+            evaluatedDevelopmentSamples: 72,
             totalDatasetVariants: 128,
             frozenHoldoutCount: manifest.holdoutCount,
             reservedLiveCandidates: liveReserve.length,
-            automatedTestsPassed: 252,
-            automatedTestsTotal: 252,
+            totalStoredCandidateInputs: 134,
+            phase2fTestsPassed: 252,
+            automatedTestsPassed: 296,
+            automatedTestsTotal: 296,
             reliabilityProbesPassed: reliability.passedCount,
             reliabilityProbesTotal: reliability.totalCount,
             reliabilityProbesFailed: reliability.failedCount,
+            failedReliabilityProbes: reliability.probes.filter((p) => !p.passed),
           },
           qualityGates: gates,
           badges: [
@@ -324,11 +359,25 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
       return;
     }
 
-    const filePath = path.join(clientDistDir, pathname === '/' ? 'index.html' : pathname.slice(1));
+    const resolvedDistDir = path.resolve(clientDistDir);
+    const relPath = safePathname === '/' ? 'index.html' : safePathname.replace(/^\/+/, '');
+    const resolvedPath = path.resolve(resolvedDistDir, relPath);
+
+    // Confinement check: resolvedPath MUST be strictly within resolvedDistDir
+    if (resolvedPath !== resolvedDistDir && !resolvedPath.startsWith(resolvedDistDir + path.sep)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          error: 'Forbidden',
+          message: 'Access denied: path traversal attempt',
+        }),
+      );
+      return;
+    }
 
     // If client build file exists, serve it
-    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-      const ext = path.extname(filePath);
+    if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
+      const ext = path.extname(resolvedPath);
       let contentType = 'text/plain';
       if (ext === '.html') contentType = 'text/html; charset=utf-8';
       else if (ext === '.js') contentType = 'application/javascript; charset=utf-8';
@@ -337,12 +386,12 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
       else if (ext === '.svg') contentType = 'image/svg+xml';
 
       res.writeHead(200, { 'Content-Type': contentType });
-      fs.createReadStream(filePath).pipe(res);
+      fs.createReadStream(resolvedPath).pipe(res);
       return;
     }
 
     // Fallback for SPA routing: serve index.html
-    const indexHtmlPath = path.join(clientDistDir, 'index.html');
+    const indexHtmlPath = path.join(resolvedDistDir, 'index.html');
     if (fs.existsSync(indexHtmlPath)) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       fs.createReadStream(indexHtmlPath).pipe(res);

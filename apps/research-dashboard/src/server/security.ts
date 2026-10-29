@@ -28,6 +28,19 @@ export function validateLoopbackAccess(
       return { allowed: false, reason: 'Host header must specify loopback' };
     }
 
+    if (
+      targetUrl.username ||
+      targetUrl.password ||
+      targetUrl.pathname !== '/' ||
+      targetUrl.search ||
+      targetUrl.hash
+    ) {
+      return {
+        allowed: false,
+        reason: 'Host header must identify loopback without userinfo, path, query, or hash',
+      };
+    }
+
     const hostPort = targetUrl.port ? Number.parseInt(targetUrl.port, 10) : 80;
     if (hostPort !== expectedPort) {
       return { allowed: false, reason: `Host port must match ${expectedPort}` };
@@ -37,7 +50,13 @@ export function validateLoopbackAccess(
     const originHeader = req.headers['origin'];
     if (originHeader) {
       const originUrl = new URL(originHeader);
-      if (!allowedHostnames.includes(originUrl.hostname)) {
+      if (
+        originUrl.origin !== originHeader ||
+        !['http:', 'https:'].includes(originUrl.protocol) ||
+        !allowedHostnames.includes(originUrl.hostname) ||
+        originUrl.username ||
+        originUrl.password
+      ) {
         return { allowed: false, reason: 'Cross-origin access is disabled' };
       }
       const originPort = originUrl.port
@@ -99,7 +118,14 @@ export function redactSecrets<T>(data: T): T {
   if (typeof data === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(data)) {
-      if (SECRET_KEY_PATTERN.test(key)) {
+      if (
+        key === 'tokenUsage' ||
+        key === 'promptTokens' ||
+        key === 'completionTokens' ||
+        key === 'totalTokens'
+      ) {
+        result[key] = redactSecrets(value);
+      } else if (SECRET_KEY_PATTERN.test(key)) {
         if (typeof value === 'string') {
           result[key] = '[REDACTED]';
         } else {

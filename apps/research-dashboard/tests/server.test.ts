@@ -121,7 +121,8 @@ describe('Veylith Research Dashboard — Local HTTP Server & Read-Only API', () 
     expect(json.metricsSummary!.offlineVariants).toBe(112);
     expect(json.metricsSummary!.frozenHoldoutCount).toBe(56);
     expect(json.metricsSummary!.reservedLiveCandidates).toBe(6);
-    expect(json.metricsSummary!.automatedTestsPassed).toBe(252);
+    expect(json.metricsSummary!.automatedTestsPassed).toBe(296);
+    expect(json.metricsSummary!.phase2fTestsPassed).toBe(252);
     expect(json.metricsSummary!.reliabilityProbesPassed).toBe(13);
     expect(json.metricsSummary!.reliabilityProbesFailed).toBe(2);
     expect(json.provenance!.baseCommit).toBeDefined();
@@ -242,6 +243,28 @@ describe('Veylith Research Dashboard — Local HTTP Server & Read-Only API', () 
       });
       expect(res.statusCode).toBe(403);
       expect(res.json!.error).toBe('Forbidden');
+    });
+
+    it('rejects requests with credentials in Host header', async () => {
+      const res = await makeRequest('GET', '/api/health', {
+        host: `attacker:secret@127.0.0.1:${serverPort}`,
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json!.error).toBe('Forbidden');
+    });
+
+    it('rejects path traversal attempts on static file routes', async () => {
+      const res1 = await makeRequest('GET', '/../../package.json');
+      expect(res1.statusCode).toBe(403);
+      expect(res1.json!.error).toBe('Forbidden');
+
+      const res2 = await makeRequest('GET', '/%2e%2e/%2e%2e/package.json');
+      expect(res2.statusCode).toBe(403);
+      expect(res2.json!.error).toBe('Forbidden');
+
+      const res3 = await makeRequest('GET', '/..%2f..%2fpackage.json');
+      expect(res3.statusCode).toBe(403);
+      expect(res3.json!.error).toBe('Forbidden');
     });
   });
 });
