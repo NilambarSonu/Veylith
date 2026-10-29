@@ -29,6 +29,8 @@
     "eval:holdout": "vitest run tests/integration/holdout-evaluation.test.ts",
     "stdio": "tsx apps/stdio-adapter/src/index.ts",
     "demo:client": "tsx scripts/demo-real-client.ts",
+    "dashboard": "pnpm --filter @veylith/research-dashboard start",
+    "dashboard:dev": "pnpm --filter @veylith/research-dashboard dev",
     "dev": "echo 'See docs/development/local-setup.md for multi-process dev instructions'",
     "clean": "pnpm -r run clean && rm -rf node_modules",
     "security:eval": "pnpm build && tsx scripts/security-lab/index.ts development",
