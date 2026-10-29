@@ -59,8 +59,9 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
     // Universal Path Traversal Guard: reject directory traversal attempts
     if (
       rawUrl.includes('..') ||
-      rawUrl.includes('%2e') ||
-      rawUrl.includes('%2E') ||
+      rawUrl.toLowerCase().includes('%2e') ||
+      rawUrl.toLowerCase().includes('%2f') ||
+      rawUrl.includes('%00') ||
       safePathname.includes('..') ||
       safePathname.includes('\0')
     ) {
@@ -377,6 +378,31 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
 
     // If client build file exists, serve it
     if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
+      // Symlink confinement check: verify actual target on disk is confined to resolvedDistDir
+      try {
+        const realTarget = fs.realpathSync(resolvedPath);
+        const realDistDir = fs.realpathSync(resolvedDistDir);
+        if (realTarget !== realDistDir && !realTarget.startsWith(realDistDir + path.sep)) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: 'Forbidden',
+              message: 'Access denied: path traversal attempt via symlink',
+            }),
+          );
+          return;
+        }
+      } catch {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            error: 'Forbidden',
+            message: 'Access denied: unable to resolve file target',
+          }),
+        );
+        return;
+      }
+
       const ext = path.extname(resolvedPath);
       let contentType = 'text/plain';
       if (ext === '.html') contentType = 'text/html; charset=utf-8';

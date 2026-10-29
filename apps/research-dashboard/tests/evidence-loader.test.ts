@@ -138,9 +138,19 @@ describe('Veylith Research Dashboard — Evidence Loader & Schema Verification',
   });
 
   describe('Cryptographic SHA-256 Audit Chain Verification', () => {
-    it('cryptographically verifies valid in-memory audit chains', () => {
-      // Get the continuous chronological audit trail for the first case (VEY-2E-E1-01) with unredacted data
-      const caseRecords = loader.getCaseAuditTrail('VEY-2E-E1-01', undefined, { raw: true });
+    it('guarantees public getCaseAuditTrail always redacts session IDs and sensitive fields', () => {
+      const publicRecords = loader.getCaseAuditTrail('VEY-2E-E1-01');
+      expect(publicRecords.length).toBeGreaterThan(0);
+      for (const rec of publicRecords) {
+        if (rec.sessionId) {
+          expect(rec.sessionId).toContain('***');
+        }
+      }
+    });
+
+    it('cryptographically verifies valid in-memory audit chains using internal raw access', () => {
+      // Get the continuous chronological audit trail for the first case (VEY-2E-E1-01) with raw data strictly for verification
+      const caseRecords = loader.getRawCaseAuditTrailForVerification('VEY-2E-E1-01');
       expect(caseRecords.length).toBeGreaterThan(0);
       expect(caseRecords[0]!.sequenceNumber).toBe(0);
 
@@ -150,7 +160,7 @@ describe('Veylith Research Dashboard — Evidence Loader & Schema Verification',
     });
 
     it('cryptographically detects tampered audit event payload', () => {
-      const caseRecords = loader.getCaseAuditTrail('VEY-2E-E1-01', undefined, { raw: true });
+      const caseRecords = loader.getRawCaseAuditTrailForVerification('VEY-2E-E1-01');
 
       // Clone and tamper with payload
       const tampered = structuredClone(caseRecords);
@@ -163,7 +173,7 @@ describe('Veylith Research Dashboard — Evidence Loader & Schema Verification',
     });
 
     it('cryptographically detects broken previousEventHash link', () => {
-      const caseRecords = loader.getCaseAuditTrail('VEY-2E-E1-01', undefined, { raw: true });
+      const caseRecords = loader.getRawCaseAuditTrailForVerification('VEY-2E-E1-01');
       expect(caseRecords.length).toBeGreaterThanOrEqual(2);
 
       const broken = structuredClone(caseRecords);
@@ -176,7 +186,7 @@ describe('Veylith Research Dashboard — Evidence Loader & Schema Verification',
     });
 
     it('cryptographically detects skipped sequence numbers', () => {
-      const caseRecords = loader.getCaseAuditTrail('VEY-2E-E1-01', undefined, { raw: true });
+      const caseRecords = loader.getRawCaseAuditTrailForVerification('VEY-2E-E1-01');
       expect(caseRecords.length).toBeGreaterThanOrEqual(2);
 
       const skipped = structuredClone(caseRecords);

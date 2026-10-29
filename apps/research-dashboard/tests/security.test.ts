@@ -167,11 +167,13 @@ describe('Veylith Research Dashboard — Security & Redaction Boundaries', () =>
   });
 
   describe('Security Headers', () => {
-    it('provides standard CSP, nosniff, and frame denying headers', () => {
+    it('provides standard CSP, nosniff, and frame denying headers without unsafe-inline scripts', () => {
       const headers = getSecurityHeaders();
       expect(headers['X-Content-Type-Options']).toBe('nosniff');
       expect(headers['X-Frame-Options']).toBe('DENY');
       expect(headers['Content-Security-Policy']).toContain("default-src 'self'");
+      expect(headers['Content-Security-Policy']).toContain("script-src 'self'");
+      expect(headers['Content-Security-Policy']).not.toContain("script-src 'self' 'unsafe-inline'");
       expect(headers['Content-Security-Policy']).toContain("frame-ancestors 'none'");
     });
   });

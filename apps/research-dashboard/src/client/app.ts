@@ -139,9 +139,12 @@ async function renderCurrentView(): Promise<void> {
       <div class="error-state">
         <h3 style="color: var(--status-danger);">Failed to load view</h3>
         <p style="font-size: 13px; color: var(--text-muted); max-width: 500px;">${errorMsg}</p>
-        <button class="btn-refresh" style="margin-top: 12px;" onclick="window.location.reload()">Retry</button>
+        <button id="btn-error-retry" class="btn-refresh" style="margin-top: 12px;">Retry</button>
       </div>
     `;
+    document.getElementById('btn-error-retry')?.addEventListener('click', () => {
+      window.location.reload();
+    });
   }
 }
 

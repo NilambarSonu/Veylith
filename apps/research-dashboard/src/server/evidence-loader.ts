@@ -419,31 +419,19 @@ export class EvidenceLoader {
   }
 
   /**
-   * Load audit records from checked-in progress JSONL files or local runtime log.
-   * Performs genuine cryptographic SHA-256 chain verification using the AuditLogChain algorithm.
+   * Internal helper that loads and cryptographically verifies audit data from disk.
    */
-  public getAuditRecords(options: {
-    source?: string;
-    limit?: number;
-    page?: number;
-    decision?: string;
-    stage?: string;
-    method?: string;
-    search?: string;
-    caseId?: string;
-    sortOrder?: 'asc' | 'desc';
-    raw?: boolean;
-  }): {
-    records: AuditRecord[];
-    total: number;
-    page: number;
-    totalPages: number;
-    source: string;
+  private loadAuditDataFromSource(sourceKey = 'phase-2f-mock-semantic'): {
+    allRecords: AuditRecord[];
     chainVerified: boolean;
     verificationError?: string;
-    chainVerification: ChainVerificationSummary;
+    totalChainsEvaluated: number;
+    validChains: number;
+    tamperedCaseId?: string;
+    tamperedIndex?: number;
+    errorState?: boolean;
+    errorMessage?: string;
   } {
-    const sourceKey = options.source ?? 'phase-2f-mock-semantic';
     let targetFile = '';
 
     if (sourceKey === 'phase-2f-deterministic-only') {
@@ -471,7 +459,6 @@ export class EvidenceLoader {
     }
 
     if (!fs.existsSync(targetFile)) {
-      // Fallback: search results dir
       const fallback = path.join(
         this.config.labEvidenceDir,
         'results',
@@ -484,23 +471,13 @@ export class EvidenceLoader {
 
     if (!fs.existsSync(targetFile)) {
       return {
-        records: [],
-        total: 0,
-        page: 1,
-        totalPages: 0,
-        source: sourceKey,
+        allRecords: [],
         chainVerified: false,
         verificationError: `Evidence source file not found: ${targetFile}`,
-        chainVerification: {
-          verified: false,
-          structure: 'multi-case-observation-log',
-          totalChainsEvaluated: 0,
-          validChains: 0,
-          totalRecords: 0,
-          hashAlgorithm: 'SHA-256 (canonical deterministic JSON)',
-          genesisHash: GENESIS_HASH,
-          error: `Evidence source file not found: ${targetFile}`,
-        },
+        totalChainsEvaluated: 0,
+        validChains: 0,
+        errorState: true,
+        errorMessage: `Evidence source file not found: ${targetFile}`,
       };
     }
 
@@ -550,8 +527,69 @@ export class EvidenceLoader {
       }
     }
 
+    return {
+      allRecords,
+      chainVerified,
+      verificationError,
+      totalChainsEvaluated,
+      validChains,
+      tamperedCaseId,
+      tamperedIndex,
+    };
+  }
+
+  /**
+   * Load audit records from checked-in progress JSONL files or local runtime log.
+   * Performs genuine cryptographic SHA-256 chain verification using the AuditLogChain algorithm.
+   * All returned records are guaranteed to be secret-redacted.
+   */
+  public getAuditRecords(options: {
+    source?: string;
+    limit?: number;
+    page?: number;
+    decision?: string;
+    stage?: string;
+    method?: string;
+    search?: string;
+    caseId?: string;
+    sortOrder?: 'asc' | 'desc';
+  }): {
+    records: AuditRecord[];
+    total: number;
+    page: number;
+    totalPages: number;
+    source: string;
+    chainVerified: boolean;
+    verificationError?: string;
+    chainVerification: ChainVerificationSummary;
+  } {
+    const sourceKey = options.source ?? 'phase-2f-mock-semantic';
+    const loaded = this.loadAuditDataFromSource(sourceKey);
+
+    if (loaded.errorState) {
+      return {
+        records: [],
+        total: 0,
+        page: 1,
+        totalPages: 0,
+        source: sourceKey,
+        chainVerified: false,
+        verificationError: loaded.errorMessage,
+        chainVerification: {
+          verified: false,
+          structure: 'multi-case-observation-log',
+          totalChainsEvaluated: 0,
+          validChains: 0,
+          totalRecords: 0,
+          hashAlgorithm: 'SHA-256 (canonical deterministic JSON)',
+          genesisHash: GENESIS_HASH,
+          error: loaded.errorMessage,
+        },
+      };
+    }
+
     // Filter
-    let filtered = allRecords;
+    let filtered = loaded.allRecords;
     if (options.caseId && options.caseId !== 'all') {
       filtered = filtered.filter((r) => r.caseId === options.caseId);
     }
@@ -576,6 +614,7 @@ export class EvidenceLoader {
           r.targetName?.toLowerCase().includes(q) ||
           r.reasonCode.toLowerCase().includes(q) ||
           r.mcpMethod.toLowerCase().includes(q) ||
+          r.stage.toLowerCase().includes(q) ||
           r.caseId?.toLowerCase().includes(q),
       );
     }
@@ -598,49 +637,56 @@ export class EvidenceLoader {
     const offset = (page - 1) * limit;
     const paginated = filtered.slice(offset, offset + limit);
 
-    // Redact secrets on output records unless raw is explicitly requested
-    const outputRecords = options.raw ? paginated : paginated.map((r) => redactSecrets(r));
+    // Redact secrets on all output records unconditionally
+    const redactedRecords = paginated.map((r) => redactSecrets(r));
 
     return {
-      records: outputRecords,
+      records: redactedRecords,
       total,
       page,
       totalPages,
       source: sourceKey,
-      chainVerified,
-      verificationError,
+      chainVerified: loaded.chainVerified,
+      verificationError: loaded.verificationError,
       chainVerification: {
-        verified: chainVerified,
+        verified: loaded.chainVerified,
         structure: 'multi-case-observation-log',
-        totalChainsEvaluated,
-        validChains,
-        totalRecords: allRecords.length,
+        totalChainsEvaluated: loaded.totalChainsEvaluated,
+        validChains: loaded.validChains,
+        totalRecords: loaded.allRecords.length,
         hashAlgorithm: 'SHA-256 (canonical deterministic JSON)',
         genesisHash: GENESIS_HASH,
-        tamperedCaseId,
-        tamperedIndex,
-        error: verificationError,
+        tamperedCaseId: loaded.tamperedCaseId,
+        tamperedIndex: loaded.tamperedIndex,
+        error: loaded.verificationError,
       },
     };
   }
 
   /**
    * Retrieves the full, continuous chronological audit trail for a single evaluation case.
+   * All returned records are guaranteed to have credentials redacted and session IDs masked.
    */
-  public getCaseAuditTrail(
-    caseId: string,
-    source?: string,
-    options?: { raw?: boolean },
-  ): AuditRecord[] {
+  public getCaseAuditTrail(caseId: string, source?: string): AuditRecord[] {
     const res = this.getAuditRecords({
       source,
       caseId,
       limit: 1000,
       page: 1,
       sortOrder: 'asc',
-      raw: options?.raw ?? false,
     });
     return res.records;
+  }
+
+  /**
+   * Internal helper strictly for offline cryptographic chain verification unit tests.
+   * Never exposed via public HTTP routing, API endpoints, or user-controlled queries.
+   */
+  public getRawCaseAuditTrailForVerification(caseId: string, source?: string): AuditRecord[] {
+    const data = this.loadAuditDataFromSource(source);
+    return data.allRecords
+      .filter((r) => r.caseId === caseId)
+      .sort((a, b) => a.sequenceNumber - b.sequenceNumber);
   }
 
   /**

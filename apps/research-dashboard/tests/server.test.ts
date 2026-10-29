@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Server } from 'node:http';
 import * as http from 'node:http';
+import * as net from 'node:net';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { startDashboardServer } from '../src/server/index.js';
 
 interface TestHttpResponse {
@@ -104,6 +107,46 @@ describe('Veylith Research Dashboard — Local HTTP Server & Read-Only API', () 
     });
   }
 
+  function makeRawSocketRequest(
+    rawPayload: string,
+  ): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
+    return new Promise((resolve, reject) => {
+      const client = net.createConnection({ host: '127.0.0.1', port: serverPort }, () => {
+        client.write(rawPayload);
+      });
+
+      let rawData = '';
+      client.on('data', (chunk) => {
+        rawData += chunk.toString('utf8');
+      });
+
+      client.on('end', () => {
+        const headerEnd = rawData.indexOf('\r\n\r\n');
+        if (headerEnd === -1) {
+          resolve({ statusCode: 0, headers: {}, body: rawData });
+          return;
+        }
+        const headerPart = rawData.slice(0, headerEnd);
+        const body = rawData.slice(headerEnd + 4);
+        const lines = headerPart.split('\r\n');
+        const statusLine = lines[0] ?? '';
+        const statusMatch = statusLine.match(/HTTP\/1\.[01]\s+(\d{3})/);
+        const statusCode = statusMatch ? parseInt(statusMatch[1]!, 10) : 0;
+        const headers: Record<string, string> = {};
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i]!;
+          const colon = line.indexOf(':');
+          if (colon > 0) {
+            headers[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
+          }
+        }
+        resolve({ statusCode, headers, body });
+      });
+
+      client.on('error', reject);
+    });
+  }
+
   it('verifies serverUrl binds to loopback 127.0.0.1', () => {
     expect(serverUrl).toBe(`http://127.0.0.1:${serverPort}`);
   });
@@ -185,6 +228,20 @@ describe('Veylith Research Dashboard — Local HTTP Server & Read-Only API', () 
     }
   });
 
+  it('GET /api/audit ignores client-supplied raw parameter and guarantees redacted secrets', async () => {
+    const res = await makeRequest('GET', '/api/audit?raw=true&caseId=VEY-2E-E1-01');
+    expect(res.statusCode).toBe(200);
+
+    const json = res.json!;
+    expect(json.records).toBeDefined();
+    expect(json.records!.length).toBeGreaterThan(0);
+    for (const rec of json.records!) {
+      if (rec.sessionId) {
+        expect(rec.sessionId).toContain('***');
+      }
+    }
+  });
+
   it('GET /api/findings returns 200 with the 8 known unresolved issues and 6 locked live candidates', async () => {
     const res = await makeRequest('GET', '/api/findings');
     expect(res.statusCode).toBe(200);
@@ -253,18 +310,86 @@ describe('Veylith Research Dashboard — Local HTTP Server & Read-Only API', () 
       expect(res.json!.error).toBe('Forbidden');
     });
 
-    it('rejects path traversal attempts on static file routes', async () => {
-      const res1 = await makeRequest('GET', '/../../package.json');
+    it('rejects path traversal attempts on static file routes using raw unnormalized TCP sockets', async () => {
+      // 1. Raw unnormalized ../
+      const res1 = await makeRawSocketRequest(
+        `GET /../../package.json HTTP/1.1\r\nHost: 127.0.0.1:${serverPort}\r\nConnection: close\r\n\r\n`,
+      );
       expect(res1.statusCode).toBe(403);
-      expect(res1.json!.error).toBe('Forbidden');
+      expect(res1.body).toContain('path traversal attempt');
 
-      const res2 = await makeRequest('GET', '/%2e%2e/%2e%2e/package.json');
+      // 2. Encoded lowercase %2e%2e
+      const res2 = await makeRawSocketRequest(
+        `GET /%2e%2e/%2e%2e/package.json HTTP/1.1\r\nHost: 127.0.0.1:${serverPort}\r\nConnection: close\r\n\r\n`,
+      );
       expect(res2.statusCode).toBe(403);
-      expect(res2.json!.error).toBe('Forbidden');
+      expect(res2.body).toContain('path traversal attempt');
 
-      const res3 = await makeRequest('GET', '/..%2f..%2fpackage.json');
+      // 3. Encoded uppercase %2E%2E
+      const res3 = await makeRawSocketRequest(
+        `GET /%2E%2E/%2E%2E/package.json HTTP/1.1\r\nHost: 127.0.0.1:${serverPort}\r\nConnection: close\r\n\r\n`,
+      );
       expect(res3.statusCode).toBe(403);
-      expect(res3.json!.error).toBe('Forbidden');
+      expect(res3.body).toContain('path traversal attempt');
+
+      // 4. Encoded slash %2f
+      const res4 = await makeRawSocketRequest(
+        `GET /..%2f..%2fpackage.json HTTP/1.1\r\nHost: 127.0.0.1:${serverPort}\r\nConnection: close\r\n\r\n`,
+      );
+      expect(res4.statusCode).toBe(403);
+      expect(res4.body).toContain('path traversal attempt');
+
+      // 5. Encoded mixed dot: .%2e
+      const res5 = await makeRawSocketRequest(
+        `GET /.%2e/.%2e/package.json HTTP/1.1\r\nHost: 127.0.0.1:${serverPort}\r\nConnection: close\r\n\r\n`,
+      );
+      expect(res5.statusCode).toBe(403);
+      expect(res5.body).toContain('path traversal attempt');
+
+      // 6. Null byte injection %00
+      const res6 = await makeRawSocketRequest(
+        `GET /%00/package.json HTTP/1.1\r\nHost: 127.0.0.1:${serverPort}\r\nConnection: close\r\n\r\n`,
+      );
+      expect(res6.statusCode).toBe(403);
+      expect(res6.body).toContain('path traversal attempt');
+
+      // 7. Malformed percent encoding %99%zz
+      const res7 = await makeRawSocketRequest(
+        `GET /%99%zz/malformed HTTP/1.1\r\nHost: 127.0.0.1:${serverPort}\r\nConnection: close\r\n\r\n`,
+      );
+      expect(res7.statusCode).toBe(400);
+      expect(res7.body).toContain('Malformed URL path');
+    });
+
+    it('rejects symlink traversal attempts outside static asset directory via fs.realpathSync', async () => {
+      const projectRoot = process.cwd().endsWith('research-dashboard')
+        ? path.resolve(process.cwd(), '../..')
+        : process.cwd();
+      const clientDistDir = path.resolve(
+        projectRoot,
+        'apps',
+        'research-dashboard',
+        'dist',
+        'client',
+      );
+      fs.mkdirSync(clientDistDir, { recursive: true });
+      const symlinkPath = path.join(clientDistDir, 'test-symlink-escape.txt');
+      const targetFile = path.resolve(projectRoot, 'package.json');
+
+      try {
+        if (fs.existsSync(symlinkPath)) {
+          fs.unlinkSync(symlinkPath);
+        }
+        fs.symlinkSync(targetFile, symlinkPath);
+
+        const res = await makeRequest('GET', '/test-symlink-escape.txt');
+        expect(res.statusCode).toBe(403);
+        expect(res.json!.message).toContain('path traversal attempt via symlink');
+      } finally {
+        if (fs.existsSync(symlinkPath)) {
+          fs.unlinkSync(symlinkPath);
+        }
+      }
     });
   });
 });
