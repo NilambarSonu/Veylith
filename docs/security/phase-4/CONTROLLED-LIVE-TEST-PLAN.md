@@ -20,7 +20,7 @@
   - Workspace Build: 8 packages built cleanly in 1.4s (`pnpm run build`, exit code 0).
   - Evaluation Typecheck: `scripts/security-lab/tsconfig.json` passed with 0 errors (`pnpm security:eval:typecheck`, exit code 0).
   - Remediation Typecheck: `scripts/security-remediation/tsconfig.json` passed with 0 errors (`pnpm security:remediation:typecheck`, exit code 0).
-  - Test Suite: 40 test files, 375 tests passing, 100% pass rate (`pnpm run test:all`, exit code 0).
+  - Test Suite: 40 test files, 375 of 375 tests passed (`pnpm run test:all`, exit code 0).
   - Reserved Candidates: All 6 candidates in `security-lab/v1/live-reserve.json` byte-for-byte identical to baseline (`0650d23` / `98d43d4`).
   - Production Artifacts: Zero `attempt.json`, `attempt-lock`, or `live-results` artifacts exist.
 
@@ -97,6 +97,8 @@ To prevent consuming any unseen evaluation cases or historical benchmark data, e
 
 ### Offline Dataset Validation Results:
 The synthetic dataset was rigorously validated offline against Veylith's dataset parsing and policy engine routing paths:
+- **Fixture File:** `security-lab/compat-case.json`
+- **File SHA-256:** `943b72268b7ac8d158e14b85347d20f7694a10ccab93f18fd2e8a28b816096dd`
 - **Parser Acceptance:** Read and parsed cleanly by `JSON.parse` as expected by `live.ts:134`.
 - **Case Count:** Exactly 1 (`parsed.length === 1`).
 - **ID Uniqueness:** 0 collisions against all IDs in `live-reserve.json`, `holdout.json`, and `development.json`.
@@ -111,6 +113,7 @@ The synthetic dataset was rigorously validated offline against Veylith's dataset
   }
   ```
   This guarantees that the input is routed to `infer()` and `gw.metaAdapter.inspect()`, rather than taking the deterministic bypass fast path.
+- **End-to-End Offline Integration Test:** Verified by `tests/integration/phase-4a-offline-routing.test.ts`, which boots the gateway, calls `reader` over MCP Streamable HTTP transport, confirms semantic inspection routing, validates the mock adapter invocation with `compatCase.input`, and asserts zero external network calls.
 
 ### Expected Classification Schema:
 ```json
@@ -216,21 +219,26 @@ if (attemptedRequests >= maxRequests || reservedTokens + estimatedReservationBou
 - Pre-dispatch check enforces `reservedCost + costBound <= maxCost` (`live.ts:275`). If unverified or missing, execution aborts before `nativeFetch`.
 
 #### 8. Can estimated cost exceed \$0.01 USD?
-**No.** With `--max-cost-usd=0.01`, any input payload that would cause `reservedCost + costBound > 0.01` triggers a fatal error prior to `fetch`. With a 512-token output reservation (\$0.002176 USD), the maximum allowable input payload is:
+**No, at the application pre-dispatch level.**
+- The **\$0.01 USD** limit is strictly an **application-level estimated-cost pre-dispatch threshold** enforced locally before any network dispatch.
+- It is **not** a guaranteed provider billing cap; the application cannot query or constrain external provider-side account billing ledgers.
+- Input token accounting uses UTF-8 bytes as an empirical heuristic (`Buffer.byteLength(payload.input)`), **not** a formally verified tokenizer upper bound.
+- With `--max-cost-usd=0.01`, any input payload that would cause `reservedCost + costBound > 0.01` triggers a fatal error prior to `fetch`. With a 512-token output reservation (\$0.002176 USD), the maximum allowable input payload is:
 $$\text{Max Input Bytes} = \frac{0.01 - 0.002176}{0.00000125} = 6{,}259.2 \text{ bytes}$$
-Any input exceeding 6,259 bytes is blocked before dispatch. The estimated cost of any dispatched call is guaranteed to be $\le \$0.010000 \text{ USD}$.
+Any input exceeding 6,259 bytes is blocked before dispatch. The estimated pre-dispatch cost of any dispatched call is guaranteed to be $\le \$0.010000 \text{ USD}$.
+- **Actual financial charges must be checked against Meta billing records** on the provider dashboard.
 
 #### 9. Can the provider charge more than the application estimate?
 **Yes.**
 - The application estimate is an internal client-side preflight gate based on UTF-8 byte heuristics.
-- Provider billing is governed by Meta's server-side BPE tokenizer, metering infrastructure, and account billing agreements.
-- Discrepancies between client heuristics and server tokenization can exist. Provider billing must be confirmed independently on the Meta developer dashboard.
+- Provider billing is governed by Meta's server-side BPE tokenizer, metering infrastructure, account agreements, and billing rules.
+- Discrepancies between client heuristics and provider tokenization can exist. Actual charges must be confirmed independently on the Meta developer dashboard.
 
 ---
 
 ### Three Distinct Cost Domains (Non-Interchangeable)
 
-1. **Local Estimated-Cost Preflight:** Client-side safety bound calculated as:
+1. **Local Estimated-Cost Preflight:** Client-side safety threshold calculated as:
    $$\text{Pre-Dispatch Cost Bound} = \frac{(1855 \times 1.25) + (512 \times 4.25)}{1{,}000{,}000} = \$0.00449475 \text{ USD} \approx \$0.0045 \text{ USD}$$
    Strictly gates whether the HTTP request is permitted to leave the machine against `--max-cost-usd=0.01`.
 2. **Actual Usage-Based Cost (Post-Response):** Calculated upon receiving valid `usage` metadata from Meta:
@@ -240,16 +248,19 @@ Any input exceeding 6,259 bytes is blocked before dispatch. The estimated cost o
 
 ---
 
-### Arithmetic Correction (Audit 3)
+### Arithmetic Correction & Illustrative Post-Response Cost (Audit 3)
 
 > [!NOTE]
 > The Phase 4A initial plan stated: `~$0.0005 USD (half of one US cent)`.
 >
-> **Correction:**
-> - $\$0.0005 \text{ USD} = 0.05 \text{ cents}$ (roughly one-twentieth of one US cent).
-> - Half of one US cent is $\$0.005 \text{ USD}$ ($0.5 \text{ cents}$).
->
-> Furthermore, prior to executing live inference, **no actual usage measurement exists**. Any post-response cost figure prior to live execution is strictly an **illustrative estimate under explicit hypothetical assumptions** (e.g. assuming ~300 prompt tokens and ~40 completion tokens: $(300 \times 1.25 + 40 \times 4.25) / 10^6 = \$0.000545 \text{ USD} = 0.0545 \text{ cents}$).
+> **Corrections & Explicit Cost Distinctions:**
+> - $\$0.0005 \text{ USD} = 0.05 \text{ cents}$ ($5$ hundredths of a cent; $\$0.005 \text{ USD}$ is $0.5 \text{ cents}$ / half of one US cent).
+> - Prior to executing live inference, **no actual usage measurement exists**.
+> - The post-response calculation of **`$0.000545 USD` ($0.0545 \text{ cents}$)** is strictly an **illustrative estimate only**, under the explicit assumptions of **300 input tokens** and **40 output tokens**:
+>   $$\text{Illustrative Cost} = \frac{(300 \times 1.25) + (40 \times 4.25)}{1{,}000{,}000} = \frac{375 + 170}{1{,}000{,}000} = \$0.000545 \text{ USD} = 0.0545 \text{ cents}$$
+> - The **\$0.01 USD** limit is an application-level estimated-cost pre-dispatch threshold, not a guaranteed provider billing cap.
+> - UTF-8 bytes are a heuristic, not a formally verified tokenizer upper bound.
+> - Actual financial charges must be checked against Meta billing records.
 
 ---
 
