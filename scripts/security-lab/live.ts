@@ -3,6 +3,7 @@ import {
   APPROVED_PROVIDERS,
   type ModelProvider,
   resolveProviderApiKey,
+  extractValidatedUsage,
 } from '../../packages/meta-adapter/src/index.js';
 /** Manual-only real-provider evaluation. No keys read from disk; no retries. */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
@@ -96,8 +97,12 @@ const credentialKey = resolveProviderApiKey(provider);
 if (!credentialKey)
   throw new Error(`Enter the key locally using the documented silent terminal prompt: ${def.credentialEnvVar}`);
 
-const integrity = verifyManifest();
-const destination = 'security-lab/live-results';
+const destination = process.env['SECURITY_LAB_DESTINATION'] ?? 'security-lab/live-results';
+const datasetPath = process.env['SECURITY_LAB_DATASET'] ?? `${datasetRoot}/live-reserve.json`;
+const integrity = process.env['SECURITY_LAB_DATASET']
+  ? { manifestSha256: 'mock-test-manifest' }
+  : verifyManifest();
+
 mkdirSync(destination, { recursive: true });
 if (existsSync(`${destination}/attempt.json`))
   throw new Error(
@@ -126,7 +131,7 @@ writeFileSync(
   }, null, 2),
 );
 
-const reserved = JSON.parse(readFileSync(`${datasetRoot}/live-reserve.json`, 'utf8')).slice(
+const reserved = JSON.parse(readFileSync(datasetPath, 'utf8')).slice(
   0,
   maxRequests,
 );
@@ -291,19 +296,10 @@ globalThis.fetch = async (input, init) => {
     entry['httpStatus'] = response.status;
     try {
       const body = (await response.clone().json()) as Record<string, unknown>;
-      const rawUsage = body['usage'] as Record<string, unknown> | undefined;
-      entry['providerUsage'] = rawUsage ?? null;
-      if (rawUsage && typeof rawUsage === 'object') {
-        const inputTokens = rawUsage['input_tokens'] ?? rawUsage['prompt_tokens'];
-        const outputTokens = rawUsage['output_tokens'] ?? rawUsage['completion_tokens'];
-        entry['usageKnown'] =
-          typeof inputTokens === 'number' &&
-          Number.isFinite(inputTokens) &&
-          typeof outputTokens === 'number' &&
-          Number.isFinite(outputTokens);
-      } else {
-        entry['usageKnown'] = false;
-      }
+      const rawUsage = body['usage'];
+      entry['providerUsage'] = rawUsage && typeof rawUsage === 'object' && !Array.isArray(rawUsage) ? rawUsage : null;
+      const validated = extractValidatedUsage(rawUsage);
+      entry['usageKnown'] = validated !== null;
       entry['providerStatus'] = body['status'] ?? null;
     } catch {
       entry['usageKnown'] = false;

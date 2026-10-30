@@ -11,7 +11,13 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { MetaAdapter, MetaAiMode, SemanticInspectionResult, ModelProvider } from './types.js';
+import type {
+  MetaAdapter,
+  MetaAiMode,
+  SemanticInspectionResult,
+  ModelProvider,
+  TokenUsage,
+} from './types.js';
 import { ModelClassificationSchema } from './types.js';
 import type { MetaAdapterConfig } from './config.js';
 import { loadMetaConfig } from './config.js';
@@ -52,6 +58,171 @@ export const CLASSIFICATION_JSON_SCHEMA = {
   required: ['flagged', 'threatCategory', 'action', 'confidence', 'explanation', 'evidence'],
   additionalProperties: false,
 } as const;
+
+/**
+ * Validates that a value is a valid token count:
+ * - JavaScript number
+ * - Safe integer (Number.isSafeInteger)
+ * - Non-negative (>= 0)
+ * Rejects negative, fractional, string, NaN, Infinity, -Infinity, unsafe integers.
+ */
+export function isValidTokenCount(val: unknown): val is number {
+  return typeof val === 'number' && Number.isSafeInteger(val) && val >= 0;
+}
+
+/**
+ * Resolves a token count from primary and alias fields.
+ * Rejects if both fields are provided with conflicting values.
+ */
+export function resolveTokenCountWithAliases(
+  primary: unknown,
+  alias: unknown,
+): { valid: boolean; value: number } {
+  const hasPrimary = primary !== undefined;
+  const hasAlias = alias !== undefined;
+
+  if (!hasPrimary && !hasAlias) {
+    return { valid: false, value: 0 };
+  }
+
+  if (hasPrimary && hasAlias) {
+    if (primary !== alias) {
+      // Conflicting ambiguous aliases!
+      return { valid: false, value: 0 };
+    }
+  }
+
+  const candidate = hasPrimary ? primary : alias;
+  if (!isValidTokenCount(candidate)) {
+    return { valid: false, value: 0 };
+  }
+
+  return { valid: true, value: candidate };
+}
+
+/**
+ * Resolves an optional token count from multiple alias candidates.
+ * Rejects if provided values conflict or are invalid token counts.
+ * Returns value 0 if none of the candidates are provided.
+ */
+export function resolveOptionalTokenCount(
+  ...candidates: unknown[]
+): { valid: boolean; value: number } {
+  const present = candidates.filter((c) => c !== undefined);
+  if (present.length === 0) {
+    return { valid: true, value: 0 };
+  }
+
+  const first = present[0];
+  for (const c of present) {
+    if (c !== first) {
+      return { valid: false, value: 0 }; // Conflicting ambiguous aliases!
+    }
+  }
+
+  if (!isValidTokenCount(first)) {
+    return { valid: false, value: 0 };
+  }
+
+  return { valid: true, value: first };
+}
+
+/**
+ * Strictly extracts and validates token usage across OpenAI Chat Completions
+ * and Meta Responses API protocols.
+ * Returns TokenUsage if all counts are valid safe non-negative integers,
+ * alias fields are consistent, and semantic bounds hold.
+ * Returns null if missing, malformed, negative, fractional, unsafe, or invalid.
+ */
+export function extractValidatedUsage(rawUsage: unknown): TokenUsage | null {
+  if (!rawUsage || typeof rawUsage !== 'object' || Array.isArray(rawUsage)) {
+    return null;
+  }
+
+  const u = rawUsage as Record<string, unknown>;
+
+  // Check details containers if provided
+  for (const key of [
+    'prompt_tokens_details',
+    'input_tokens_details',
+    'completion_tokens_details',
+    'output_tokens_details',
+  ]) {
+    if (key in u) {
+      const val = u[key];
+      if (val !== undefined && (typeof val !== 'object' || val === null || Array.isArray(val))) {
+        return null;
+      }
+    }
+  }
+
+  // Check total_tokens if provided
+  if ('total_tokens' in u && u['total_tokens'] !== undefined) {
+    if (!isValidTokenCount(u['total_tokens'])) {
+      return null;
+    }
+  }
+
+  const promptRes = resolveTokenCountWithAliases(u['prompt_tokens'], u['input_tokens']);
+  const outputRes = resolveTokenCountWithAliases(u['completion_tokens'], u['output_tokens']);
+
+  if (!promptRes.valid || !outputRes.valid) {
+    return null;
+  }
+
+  const promptDetails = (u['prompt_tokens_details'] ?? u['input_tokens_details']) as
+    | Record<string, unknown>
+    | undefined;
+  const inputDetails = (u['input_tokens_details'] ?? u['prompt_tokens_details']) as
+    | Record<string, unknown>
+    | undefined;
+
+  const cachedRes = resolveOptionalTokenCount(
+    promptDetails && typeof promptDetails === 'object' && !Array.isArray(promptDetails)
+      ? promptDetails['cached_tokens']
+      : undefined,
+    inputDetails && typeof inputDetails === 'object' && !Array.isArray(inputDetails)
+      ? inputDetails['cached_tokens']
+      : undefined,
+    u['cached_tokens'],
+  );
+
+  const compDetails = (u['completion_tokens_details'] ?? u['output_tokens_details']) as
+    | Record<string, unknown>
+    | undefined;
+  const outDetails = (u['output_tokens_details'] ?? u['completion_tokens_details']) as
+    | Record<string, unknown>
+    | undefined;
+
+  const reasoningRes = resolveOptionalTokenCount(
+    compDetails && typeof compDetails === 'object' && !Array.isArray(compDetails)
+      ? compDetails['reasoning_tokens']
+      : undefined,
+    outDetails && typeof outDetails === 'object' && !Array.isArray(outDetails)
+      ? outDetails['reasoning_tokens']
+      : undefined,
+    u['reasoning_tokens'],
+  );
+
+  if (!cachedRes.valid || !reasoningRes.valid) {
+    return null;
+  }
+
+  // Semantic relationship checks:
+  // 1. Cached input tokens must not exceed total input tokens
+  // 2. Reasoning tokens must not exceed total output tokens
+  if (cachedRes.value > promptRes.value || reasoningRes.value > outputRes.value) {
+    return null;
+  }
+
+  return {
+    promptTokens: promptRes.value,
+    completionTokens: outputRes.value,
+    totalTokens: promptRes.value + outputRes.value,
+    cachedPromptTokens: cachedRes.value,
+    reasoningTokens: reasoningRes.value,
+  };
+}
 
 export class MetaMuseSecurityAdapter implements MetaAdapter {
   private readonly config: MetaAdapterConfig;
@@ -339,12 +510,7 @@ ${sanitizedUntrustedContent}
           temperature: 0.0,
         });
 
-    let extractedUsage: {
-      promptTokens: number;
-      outputTokens: number;
-      cachedPromptTokens: number;
-      reasoningTokens: number;
-    } | null = null;
+    let extractedUsage: TokenUsage | null = null;
     let isProviderResponse = false;
 
     try {
@@ -371,27 +537,7 @@ ${sanitizedUntrustedContent}
 
       if (isChatCompletions) {
         // OpenAI Chat Completions protocol (Fireworks, Baseten)
-        const usageObj = rawJson['usage'] as
-          | { prompt_tokens?: number; completion_tokens?: number; input_tokens?: number; output_tokens?: number }
-          | undefined;
-
-        if (usageObj && typeof usageObj === 'object') {
-          const promptTokens = usageObj.prompt_tokens ?? usageObj.input_tokens;
-          const outputTokens = usageObj.completion_tokens ?? usageObj.output_tokens;
-          if (
-            typeof promptTokens === 'number' &&
-            Number.isFinite(promptTokens) &&
-            typeof outputTokens === 'number' &&
-            Number.isFinite(outputTokens)
-          ) {
-            extractedUsage = {
-              promptTokens,
-              outputTokens,
-              cachedPromptTokens: 0,
-              reasoningTokens: 0,
-            };
-          }
-        }
+        extractedUsage = extractValidatedUsage(rawJson['usage']);
 
         const choices = rawJson['choices'] as Array<{
           message?: { content?: string };
@@ -421,47 +567,7 @@ ${sanitizedUntrustedContent}
         }
       } else {
         // Meta Responses API protocol
-        const usageObj = rawJson['usage'] as {
-          input_tokens?: number;
-          output_tokens?: number;
-          input_tokens_details?: { cached_tokens?: number };
-          output_tokens_details?: { reasoning_tokens?: number };
-          prompt_tokens?: number;
-          completion_tokens?: number;
-          cached_tokens?: number;
-          reasoning_tokens?: number;
-          prompt_tokens_details?: { cached_tokens?: number };
-          completion_tokens_details?: { reasoning_tokens?: number };
-        } | undefined;
-
-        if (usageObj && typeof usageObj === 'object') {
-          const promptTokens = usageObj.input_tokens ?? usageObj.prompt_tokens;
-          const outputTokens = usageObj.output_tokens ?? usageObj.completion_tokens;
-          if (
-            typeof promptTokens === 'number' &&
-            Number.isFinite(promptTokens) &&
-            typeof outputTokens === 'number' &&
-            Number.isFinite(outputTokens)
-          ) {
-            const cachedPromptTokens =
-              usageObj.input_tokens_details?.cached_tokens ??
-              usageObj.cached_tokens ??
-              usageObj.prompt_tokens_details?.cached_tokens ??
-              0;
-            const reasoningTokens =
-              usageObj.output_tokens_details?.reasoning_tokens ??
-              usageObj.reasoning_tokens ??
-              usageObj.completion_tokens_details?.reasoning_tokens ??
-              0;
-
-            extractedUsage = {
-              promptTokens,
-              outputTokens,
-              cachedPromptTokens,
-              reasoningTokens,
-            };
-          }
-        }
+        extractedUsage = extractValidatedUsage(rawJson['usage']);
 
         const status = rawJson['status'];
         const finishReason = rawJson['finish_reason'];
@@ -528,9 +634,9 @@ ${sanitizedUntrustedContent}
 
       if (extractedUsage) {
         const promptTokens = extractedUsage.promptTokens;
-        const cachedPromptTokens = extractedUsage.cachedPromptTokens;
-        const outputTokens = extractedUsage.outputTokens;
-        const reasoningTokens = extractedUsage.reasoningTokens;
+        const cachedPromptTokens = extractedUsage.cachedPromptTokens ?? 0;
+        const outputTokens = extractedUsage.completionTokens;
+        const reasoningTokens = extractedUsage.reasoningTokens ?? 0;
 
         // Note: outputTokens already includes reasoningTokens; do not double count!
         this.tracker.recordSuccess(
@@ -541,13 +647,7 @@ ${sanitizedUntrustedContent}
           reasoningTokens,
         );
 
-        tokenUsage = {
-          promptTokens,
-          completionTokens: outputTokens,
-          totalTokens: promptTokens + outputTokens,
-          cachedPromptTokens,
-          reasoningTokens,
-        };
+        tokenUsage = extractedUsage;
       } else {
         // Record classification success independently, but flag unknown usage
         // Do NOT synthesize fake token counts!
@@ -575,7 +675,7 @@ ${sanitizedUntrustedContent}
         extractedUsage
           ? {
               promptTokens: extractedUsage.promptTokens,
-              completionTokens: extractedUsage.outputTokens,
+              completionTokens: extractedUsage.completionTokens,
               cachedPromptTokens: extractedUsage.cachedPromptTokens,
               reasoningTokens: extractedUsage.reasoningTokens,
             }
@@ -594,15 +694,7 @@ ${sanitizedUntrustedContent}
         explanation: `${providerLabel} outage / classification error: ${sanitizedErrMsg}`,
         confidence: 0.0,
         evidence: ['Classifier fallback due to error or incomplete response'],
-        tokenUsage: extractedUsage
-          ? {
-              promptTokens: extractedUsage.promptTokens,
-              completionTokens: extractedUsage.outputTokens,
-              totalTokens: extractedUsage.promptTokens + extractedUsage.outputTokens,
-              cachedPromptTokens: extractedUsage.cachedPromptTokens,
-              reasoningTokens: extractedUsage.reasoningTokens,
-            }
-          : undefined,
+        tokenUsage: extractedUsage ?? undefined,
         hasUnknownUsage: isProviderResponse && !extractedUsage,
         durationMs,
         mode: 'live',

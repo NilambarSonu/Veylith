@@ -75,6 +75,38 @@ export const APPROVED_PROVIDERS: Record<ModelProvider, ProviderDefinition> = {
 };
 
 /**
+ * Extracts IPv4 bytes [b0, b1, b2, b3] from:
+ * 1. Dotted-decimal IPv4 (e.g. "127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.1.1")
+ * 2. IPv4-mapped IPv6 in dotted format (e.g. "::ffff:127.0.0.1", "::ffff:172.16.0.1")
+ * 3. IPv4-mapped IPv6 in WHATWG hex format (e.g. "::ffff:7f00:1", "::ffff:ac10:1", "::ffff:a00:1")
+ */
+export function extractIpv4Bytes(cleanHost: string): [number, number, number, number] | null {
+  const normalized = cleanHost.replace(/^\[|\]$/g, '').trim().toLowerCase();
+
+  // Check dotted-decimal IPv4 or ::ffff:d.d.d.d or 0:0:0:0:0:ffff:d.d.d.d
+  const dotted = /^(?:::ffff:|(?:0+:){5}ffff:)?(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/i.exec(normalized);
+  if (dotted) {
+    const b0 = parseInt(dotted[1]!, 10);
+    const b1 = parseInt(dotted[2]!, 10);
+    const b2 = parseInt(dotted[3]!, 10);
+    const b3 = parseInt(dotted[4]!, 10);
+    if (b0 <= 255 && b1 <= 255 && b2 <= 255 && b3 <= 255) {
+      return [b0, b1, b2, b3];
+    }
+  }
+
+  // Check WHATWG-normalized hex form ::ffff:H1:H2 or 0:0:0:0:0:ffff:H1:H2
+  const hex = /^(?:::ffff:|(?:0+:){5}ffff:)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(normalized);
+  if (hex) {
+    const h1 = parseInt(hex[1]!, 16);
+    const h2 = parseInt(hex[2]!, 16);
+    return [(h1 >> 8) & 0xff, h1 & 0xff, (h2 >> 8) & 0xff, h2 & 0xff];
+  }
+
+  return null;
+}
+
+/**
  * Checks if a given URL is a loopback destination.
  * Covers IPv4 loopback (127.0.0.0/8, 0.0.0.0), localhost, IPv6 loopback (::1, [::1], ::),
  * and IPv4-mapped IPv6 loopback addresses (::ffff:127.0.0.0/104 or ::ffff:7f00:0/104).
@@ -84,16 +116,20 @@ export function isLoopbackEndpoint(urlString: string): boolean {
     const url = new URL(urlString);
     const host = url.hostname.toLowerCase();
     const cleanHost = host.replace(/^\[|\]$/g, '');
-    return (
-      cleanHost === '127.0.0.1' ||
-      cleanHost === 'localhost' ||
-      cleanHost === '::1' ||
-      cleanHost === '::' ||
-      cleanHost === '0.0.0.0' ||
-      cleanHost.startsWith('127.') ||
-      cleanHost.startsWith('::ffff:127.') ||
-      cleanHost.startsWith('::ffff:7f')
-    );
+
+    // Hostname checks
+    if (cleanHost === 'localhost' || cleanHost === '::1' || cleanHost === '::' || cleanHost === '0.0.0.0') {
+      return true;
+    }
+
+    const bytes = extractIpv4Bytes(cleanHost);
+    if (bytes) {
+      const [b0] = bytes;
+      // 127.0.0.0/8 or 0.0.0.0/8
+      return b0 === 127 || b0 === 0;
+    }
+
+    return false;
   } catch {
     return false;
   }
@@ -101,9 +137,10 @@ export function isLoopbackEndpoint(urlString: string): boolean {
 
 /**
  * Checks if a given URL points to a private or link-local network destination.
- * Covers RFC 1918 IPv4 private subnets, RFC 3927 link-local, .local/.internal/.lan mDNS/internal names,
+ * Covers RFC 1918 IPv4 private subnets (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16),
+ * RFC 3927 link-local (169.254.0.0/16), .local/.internal/.lan mDNS/internal names,
  * IPv6 Unique-Local (RFC 4193 fc00::/7), IPv6 Link-Local (RFC 4291 fe80::/10),
- * and IPv4-mapped IPv6 private ranges.
+ * and IPv4-mapped IPv6 equivalents for all of the above.
  */
 export function isPrivateNetworkEndpoint(urlString: string): boolean {
   try {
@@ -112,6 +149,7 @@ export function isPrivateNetworkEndpoint(urlString: string): boolean {
     if (isLoopbackEndpoint(urlString)) return true;
     const cleanHost = host.replace(/^\[|\]$/g, '');
 
+    // Internal/mDNS domain names
     if (
       cleanHost.endsWith('.local') ||
       cleanHost.endsWith('.internal') ||
@@ -120,37 +158,32 @@ export function isPrivateNetworkEndpoint(urlString: string): boolean {
       return true;
     }
 
-    // IPv6 Unique-Local (fc00::/7 -> fc.. or fd..) and Link-Local (fe80::/10 -> fe8.. to feb..)
-    if (/^f[cd][0-9a-f]{2}:/i.test(cleanHost) || cleanHost.startsWith('fc') || cleanHost.startsWith('fd')) {
-      return true;
-    }
-    if (/^fe[89ab][0-9a-f]:/i.test(cleanHost) || cleanHost.startsWith('fe80')) {
+    // IPv6 Unique-Local (RFC 4193 fc00::/7 -> fc.. or fd..)
+    if (/^f[cd][0-9a-f]{0,2}:/i.test(cleanHost) || cleanHost.startsWith('fc') || cleanHost.startsWith('fd')) {
       return true;
     }
 
-    // IPv4-mapped IPv6 private ranges (e.g. ::ffff:10.0.0.1, ::ffff:192.168.1.1, ::ffff:169.254.1.1, ::ffff:a00:, ::ffff:c0a8:, ::ffff:a9fe:)
-    if (
-      cleanHost.startsWith('::ffff:10.') ||
-      cleanHost.startsWith('::ffff:192.168.') ||
-      cleanHost.startsWith('::ffff:169.254.') ||
-      cleanHost.startsWith('::ffff:a00:') ||
-      cleanHost.startsWith('::ffff:c0a8:') ||
-      cleanHost.startsWith('::ffff:a9fe:')
-    ) {
+    // IPv6 Link-Local (RFC 4291 fe80::/10 -> fe8.. to feb..)
+    if (/^fe[89ab][0-9a-f]{0,2}:/i.test(cleanHost) || cleanHost.startsWith('fe80')) {
       return true;
     }
 
-    // IPv4 private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16
-    const ipv4Match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(cleanHost);
-    if (ipv4Match) {
-      const b0 = parseInt(ipv4Match[1]!, 10);
-      const b1 = parseInt(ipv4Match[2]!, 10);
+    // Extract IPv4 bytes (covers native IPv4, ::ffff:d.d.d.d, and ::ffff:hex:hex)
+    const bytes = extractIpv4Bytes(cleanHost);
+    if (bytes) {
+      const [b0, b1] = bytes;
+      // 10.0.0.0/8 (10.0.0.0 - 10.255.255.255)
       if (b0 === 10) return true;
+      // 172.16.0.0/12 (172.16.0.0 - 172.31.255.255)
       if (b0 === 172 && b1 >= 16 && b1 <= 31) return true;
+      // 192.168.0.0/16 (192.168.0.0 - 192.168.255.255)
       if (b0 === 192 && b1 === 168) return true;
+      // 169.254.0.0/16 (169.254.0.0 - 169.254.255.255, RFC 3927 Link-Local)
       if (b0 === 169 && b1 === 254) return true;
-      if (b0 === 0) return true;
+      // 127.0.0.0/8 or 0.0.0.0/8
+      if (b0 === 127 || b0 === 0) return true;
     }
+
     return false;
   } catch {
     return false;

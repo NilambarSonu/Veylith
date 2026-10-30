@@ -25,6 +25,7 @@ export {
   validateProviderConfiguration,
   isLoopbackEndpoint,
   isPrivateNetworkEndpoint,
+  extractIpv4Bytes,
   resolveProviderApiKey,
   sanitizeProviderError,
 } from './providers.js';
@@ -36,7 +37,14 @@ export type {
   UsageTrackerOptions,
 } from './tracker.js';
 export { UsageTracker } from './tracker.js';
-export { MetaMuseSecurityAdapter, CLASSIFICATION_JSON_SCHEMA } from './adapter.js';
+export {
+  MetaMuseSecurityAdapter,
+  CLASSIFICATION_JSON_SCHEMA,
+  isValidTokenCount,
+  resolveTokenCountWithAliases,
+  resolveOptionalTokenCount,
+  extractValidatedUsage,
+} from './adapter.js';
 
 /** Legacy stub implementation kept for backwards compatibility. */
 export class StubMetaAdapter {
