@@ -511,6 +511,7 @@ describe('AI Provider Compatibility (Meta, Fireworks, Baseten)', () => {
               },
             },
           ],
+          usage: { prompt_tokens: 15, completion_tokens: 10 },
         }),
       } as Response);
 

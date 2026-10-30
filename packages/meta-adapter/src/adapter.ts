@@ -376,14 +376,21 @@ ${sanitizedUntrustedContent}
           | undefined;
 
         if (usageObj && typeof usageObj === 'object') {
-          const promptTokens = usageObj.prompt_tokens ?? usageObj.input_tokens ?? 0;
-          const outputTokens = usageObj.completion_tokens ?? usageObj.output_tokens ?? 0;
-          extractedUsage = {
-            promptTokens,
-            outputTokens,
-            cachedPromptTokens: 0,
-            reasoningTokens: 0,
-          };
+          const promptTokens = usageObj.prompt_tokens ?? usageObj.input_tokens;
+          const outputTokens = usageObj.completion_tokens ?? usageObj.output_tokens;
+          if (
+            typeof promptTokens === 'number' &&
+            Number.isFinite(promptTokens) &&
+            typeof outputTokens === 'number' &&
+            Number.isFinite(outputTokens)
+          ) {
+            extractedUsage = {
+              promptTokens,
+              outputTokens,
+              cachedPromptTokens: 0,
+              reasoningTokens: 0,
+            };
+          }
         }
 
         const choices = rawJson['choices'] as Array<{
@@ -428,25 +435,32 @@ ${sanitizedUntrustedContent}
         } | undefined;
 
         if (usageObj && typeof usageObj === 'object') {
-          const promptTokens = usageObj.input_tokens ?? usageObj.prompt_tokens ?? 0;
-          const cachedPromptTokens =
-            usageObj.input_tokens_details?.cached_tokens ??
-            usageObj.cached_tokens ??
-            usageObj.prompt_tokens_details?.cached_tokens ??
-            0;
-          const outputTokens = usageObj.output_tokens ?? usageObj.completion_tokens ?? 0;
-          const reasoningTokens =
-            usageObj.output_tokens_details?.reasoning_tokens ??
-            usageObj.reasoning_tokens ??
-            usageObj.completion_tokens_details?.reasoning_tokens ??
-            0;
+          const promptTokens = usageObj.input_tokens ?? usageObj.prompt_tokens;
+          const outputTokens = usageObj.output_tokens ?? usageObj.completion_tokens;
+          if (
+            typeof promptTokens === 'number' &&
+            Number.isFinite(promptTokens) &&
+            typeof outputTokens === 'number' &&
+            Number.isFinite(outputTokens)
+          ) {
+            const cachedPromptTokens =
+              usageObj.input_tokens_details?.cached_tokens ??
+              usageObj.cached_tokens ??
+              usageObj.prompt_tokens_details?.cached_tokens ??
+              0;
+            const reasoningTokens =
+              usageObj.output_tokens_details?.reasoning_tokens ??
+              usageObj.reasoning_tokens ??
+              usageObj.completion_tokens_details?.reasoning_tokens ??
+              0;
 
-          extractedUsage = {
-            promptTokens,
-            outputTokens,
-            cachedPromptTokens,
-            reasoningTokens,
-          };
+            extractedUsage = {
+              promptTokens,
+              outputTokens,
+              cachedPromptTokens,
+              reasoningTokens,
+            };
+          }
         }
 
         const status = rawJson['status'];
@@ -509,19 +523,36 @@ ${sanitizedUntrustedContent}
       const parsed = parseResult.data;
 
       const durationMs = Math.round((performance.now() - start) * 100) / 100;
-      const promptTokens = extractedUsage?.promptTokens ?? Math.round(userPrompt.length / 4);
-      const cachedPromptTokens = extractedUsage?.cachedPromptTokens ?? 0;
-      const outputTokens = extractedUsage?.outputTokens ?? Math.round(rawText.length / 4);
-      const reasoningTokens = extractedUsage?.reasoningTokens ?? 0;
+      let tokenUsage: SemanticInspectionResult['tokenUsage'] = undefined;
+      const hasUnknownUsage = !extractedUsage;
 
-      // Note: outputTokens already includes reasoningTokens; do not double count!
-      this.tracker.recordSuccess(
-        promptTokens,
-        outputTokens,
-        durationMs,
-        cachedPromptTokens,
-        reasoningTokens,
-      );
+      if (extractedUsage) {
+        const promptTokens = extractedUsage.promptTokens;
+        const cachedPromptTokens = extractedUsage.cachedPromptTokens;
+        const outputTokens = extractedUsage.outputTokens;
+        const reasoningTokens = extractedUsage.reasoningTokens;
+
+        // Note: outputTokens already includes reasoningTokens; do not double count!
+        this.tracker.recordSuccess(
+          promptTokens,
+          outputTokens,
+          durationMs,
+          cachedPromptTokens,
+          reasoningTokens,
+        );
+
+        tokenUsage = {
+          promptTokens,
+          completionTokens: outputTokens,
+          totalTokens: promptTokens + outputTokens,
+          cachedPromptTokens,
+          reasoningTokens,
+        };
+      } else {
+        // Record classification success independently, but flag unknown usage
+        // Do NOT synthesize fake token counts!
+        this.tracker.recordSuccessWithUnknownUsage(durationMs);
+      }
 
       return {
         flagged: parsed.flagged,
@@ -531,13 +562,8 @@ ${sanitizedUntrustedContent}
         confidence: parsed.confidence,
         evidence: parsed.evidence,
         rawScore: parsed.confidence,
-        tokenUsage: {
-          promptTokens,
-          completionTokens: outputTokens,
-          totalTokens: promptTokens + outputTokens,
-          cachedPromptTokens,
-          reasoningTokens,
-        },
+        tokenUsage,
+        hasUnknownUsage,
         durationMs,
         mode: 'live',
         model: this.config.model,

@@ -185,7 +185,7 @@ export const EvaluationRunSchema = z.object({
   manifestSha256: z.string(),
   metrics: MetricsSchema,
   actualPaidModelCalls: z.number(),
-  estimatedCostUsd: z.number(),
+  estimatedCostUsd: z.number().nullable(),
   mockInferenceCalls: z.number().optional(),
   throughputCasesPerSecond: z.number().optional(),
   heapGrowthBytes: z.number().optional(),

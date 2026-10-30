@@ -140,8 +140,9 @@ const usage: Array<Record<string, unknown>> = [];
 const outputs: unknown[] = [];
 const observations: Observation[] = [];
 
-function knownCost() {
+function knownCost(): number | null {
   if (!def.pricingVerified) return null; // Cost is unknown and unbounded by application
+  if (usage.some((entry) => entry['usageKnown'] !== true)) return null; // Unknown usage cannot be converted to cost
   return usage.reduce((sum, entry) => {
     const u = entry['providerUsage'] as {
       input_tokens?: number;
@@ -237,8 +238,8 @@ globalThis.fetch = async (input, init) => {
 
   // Token Accounting Clarification:
   // Buffer.byteLength is a conservative UTF-8 byte approximation of input length,
-  // NOT an exact model tokenizer output. Actual token usage is extracted from
-  // provider response metadata when available.
+  // NOT an exact model tokenizer output and NOT a mathematically guaranteed tokenizer upper bound.
+  // Actual token usage is extracted from provider response metadata when available.
   let conservativeInputBytesBound: number;
   if (typeof payload.input === 'string') {
     if (payload.input.length > 12000) throw new Error('Payload input exceeds length limit');
@@ -279,7 +280,7 @@ globalThis.fetch = async (input, init) => {
     tokenAccounting: 'conservative_input_bytes_plus_output_limit',
     conservativeInputBytesBound,
     outputTokenLimit: 512,
-    estimatedMaximumCostUsd: def.pricingVerified ? costBound : 'unverified_estimate_only',
+    estimatedMaximumCostUsd: def.pricingVerified ? costBound : null,
     providerUsage: null,
     usageKnown: false,
   };
@@ -296,7 +297,10 @@ globalThis.fetch = async (input, init) => {
         const inputTokens = rawUsage['input_tokens'] ?? rawUsage['prompt_tokens'];
         const outputTokens = rawUsage['output_tokens'] ?? rawUsage['completion_tokens'];
         entry['usageKnown'] =
-          typeof inputTokens === 'number' && typeof outputTokens === 'number';
+          typeof inputTokens === 'number' &&
+          Number.isFinite(inputTokens) &&
+          typeof outputTokens === 'number' &&
+          Number.isFinite(outputTokens);
       } else {
         entry['usageKnown'] = false;
       }
@@ -309,15 +313,17 @@ globalThis.fetch = async (input, init) => {
     entry['networkFailure'] = true;
     throw new Error('Provider transport failed; no retry will be attempted');
   } finally {
+    const runHasUnknownUsage = usage.some((e) => e['usageKnown'] !== true);
     writeFileSync(
       `${destination}/usage.json`,
       JSON.stringify(
         {
           attemptedRequests,
           reservedTokens,
-          reservedCost: def.pricingVerified ? reservedCost : 'unverified_estimate_only',
+          reservedCost: def.pricingVerified && !runHasUnknownUsage ? reservedCost : null,
           pricingVerified: def.pricingVerified,
-          dollarBudgetEnforced: def.pricingVerified,
+          dollarBudgetEnforced: def.pricingVerified && !runHasUnknownUsage,
+          hasUnknownUsage: runHasUnknownUsage,
           usage,
         },
         null,
@@ -359,6 +365,8 @@ gw.metaAdapter.inspect = async (content, stage, metadata) => {
 await new Promise<void>((resolve) => gw.httpServer.listen(0, '127.0.0.1', resolve));
 const addr = gw.httpServer.address();
 if (!addr || typeof addr === 'string') throw new Error('No loopback port');
+
+let stopReason: 'unknown_provider_usage' | 'failed_classification' | null = null;
 
 try {
   for (const c of reserved) {
@@ -460,10 +468,6 @@ try {
         latencyMs: performance.now() - started,
         evidence: { result, audit: records },
       });
-      writeFileSync(
-        `${destination}/REPORT.md`,
-        `# Manual real model results (${def.name})\n\n${observations.length} synthetic cases; ${attemptedRequests} attempted paid calls. Pipeline metrics (cases routed around inference remain visible):\n\n\`\`\`json\n${JSON.stringify(metrics(observations), null, 2)}\n\`\`\`\n\nEstimated known-usage cost: ${knownCost() !== null ? '$' + String(knownCost()) : 'unverified; cannot be bounded by application'}. Conservative reserved cost: ${def.pricingVerified ? '$' + String(reservedCost) : 'unverified'}. Provider billing must be verified separately on provider dashboard. Confidence is not a calibrated probability.\n`,
-      );
       outputs.push({
         id: c.id,
         expected: c.expectedSecurityDecision,
@@ -471,6 +475,34 @@ try {
         providerCalls: attemptedRequests - before,
         audit: gw.auditChain.getRecords(),
       });
+
+      const trackerReport = gw.metaAdapter.tracker.getReport();
+      const lastEntry = usage[usage.length - 1];
+      const runHasUnknownUsage =
+        usage.some((entry) => entry['usageKnown'] !== true) || trackerReport.hasUnknownUsage;
+      const lastCallHasUnknownUsage =
+        (lastEntry && lastEntry['usageKnown'] !== true) || trackerReport.hasUnknownUsage;
+
+      if (lastCallHasUnknownUsage) {
+        stopReason = 'unknown_provider_usage';
+      } else if (trackerReport.failedClassifications > 0) {
+        stopReason = 'failed_classification';
+      }
+
+      const dollarBudgetEnforced = def.pricingVerified && !runHasUnknownUsage;
+      const costStatus = def.pricingVerified
+        ? (runHasUnknownUsage ? 'unknown_usage_cost' : 'verified_pricing')
+        : 'unverified_unbounded_cost';
+
+      const stopNotice = stopReason
+        ? `\n\n**Run stopped early:** \`${stopReason}\`. Preserved ${observations.length} completed observation(s); no subsequent candidates dispatched.\n`
+        : '';
+
+      writeFileSync(
+        `${destination}/REPORT.md`,
+        `# Manual real model results (${def.name})${stopNotice}\n\n${observations.length} synthetic cases; ${attemptedRequests} attempted paid calls. Pipeline metrics (cases routed around inference remain visible):\n\n\`\`\`json\n${JSON.stringify(metrics(observations), null, 2)}\n\`\`\`\n\nEstimated known-usage cost: ${knownCost() !== null ? '$' + String(knownCost()) : 'null (unknown or unverified; cannot be bounded by application)'}. Conservative reserved cost: ${def.pricingVerified && !runHasUnknownUsage ? '$' + String(reservedCost) : 'unverified/unknown'}. Provider billing must be verified separately on provider dashboard. Confidence is not a calibrated probability.\n`,
+      );
+
       writeFileSync(
         `${destination}/results.json`,
         JSON.stringify(
@@ -478,15 +510,17 @@ try {
             provider: def.id,
             model: def.defaultModel,
             pricingVerified: def.pricingVerified,
-            dollarBudgetEnforced: def.pricingVerified,
-            costStatus: def.pricingVerified ? 'verified_pricing' : 'unverified_unbounded_cost',
+            dollarBudgetEnforced,
+            costStatus,
+            runStatus: stopReason ? `stopped_${stopReason}` : 'completed',
+            stopReason: stopReason ?? null,
             tokenAccounting: 'conservative_input_bytes_plus_output_limit',
             outputs,
             usage,
             attemptedRequests,
-            hasUnknownUsage: usage.some((entry) => entry['usageKnown'] !== true),
+            hasUnknownUsage: runHasUnknownUsage,
             estimatedKnownUsageCostUsd: knownCost(),
-            estimatedMaximumCostUsd: def.pricingVerified ? reservedCost : 'unverified_estimate_only',
+            estimatedMaximumCostUsd: def.pricingVerified && !runHasUnknownUsage ? reservedCost : null,
             providerBilling: 'verify independently on provider dashboard; application cannot guarantee provider-side account cap',
             confidenceIsCalibrated: false,
           },
@@ -494,8 +528,9 @@ try {
           2,
         ),
       );
-      // Failures/incomplete responses stop the run; no automatic retries or replacements.
-      if (gw.metaAdapter.tracker.getReport().failedClassifications > 0) break;
+
+      // Immediately halt if unknown usage encountered or classification failed; do NOT dispatch subsequent candidates!
+      if (stopReason) break;
     } finally {
       await client.close();
     }

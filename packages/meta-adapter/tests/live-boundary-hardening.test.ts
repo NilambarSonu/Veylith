@@ -312,7 +312,7 @@ describe('Veylith — Critical Live-Boundary Security Hardening', () => {
       expect(report.hasUnverifiedPricing).toBe(true);
       expect(report.dollarBudgetEnforced).toBe(false);
       expect(report.costStatus).toBe('unverified_unbounded_cost');
-      expect(report.estimatedCostUsd).toBe(0); // Cost not represented as verified
+      expect(report.estimatedCostUsd).toBeNull(); // Cost represented as null when unverified
     });
 
     it('enforces verified dollar cap for Meta Muse Spark 1.3 when pricing is verified', () => {
@@ -391,11 +391,14 @@ describe('Veylith — Critical Live-Boundary Security Hardening', () => {
   describe('14: Live Runner CLI Safeguards (scripts/security-lab/live.ts)', () => {
     const runLiveCli = (extraArgs: string[], extraEnv: Record<string, string> = {}) => {
       const { spawnSync } = require('node:child_process');
+      const { resolve } = require('node:path');
+      const scriptPath = resolve(__dirname, '../../../scripts/security-lab/live.ts');
       return spawnSync(
         process.execPath,
-        ['--import', 'tsx', 'scripts/security-lab/live.ts', ...extraArgs],
+        ['--import', 'tsx', scriptPath, ...extraArgs],
         {
           encoding: 'utf8',
+          cwd: resolve(__dirname, '../../..'),
           env: {
             ...process.env,
             ...extraEnv,

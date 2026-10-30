@@ -43,11 +43,11 @@ export interface UsageReport {
   readonly totalTokens: number;
   readonly hasUnknownUsage: boolean;
   readonly unknownUsageCount: number;
-  readonly estimatedCostUsd: number;
+  readonly estimatedCostUsd: number | null;
   readonly pricingVerified: boolean;
   readonly hasUnverifiedPricing: boolean;
   readonly dollarBudgetEnforced: boolean;
-  readonly costStatus: 'verified_pricing' | 'unverified_unbounded_cost';
+  readonly costStatus: 'verified_pricing' | 'unverified_unbounded_cost' | 'unknown_usage_cost';
   readonly averageLatencyMs: number;
   readonly maxRequestsPerRun: number;
   readonly dailyBudgetUsd: number;
@@ -118,6 +118,12 @@ export class UsageTracker {
       );
     }
 
+    if (this.hasUnknownUsage) {
+      throw new Error(
+        'Local usage safeguard: Unknown provider usage was previously encountered. Subsequent inference requests are blocked.',
+      );
+    }
+
     if (this.pricingVerified) {
       const currentCost = this.getEstimatedCostUsd();
       if (currentCost >= this.dailyBudgetUsd) {
@@ -150,6 +156,23 @@ export class UsageTracker {
     this.completionTokens += completionTokens;
     this.reasoningTokens += reasoningTokens;
     if (latencyMs > 0) {
+      this.totalLatencyMs += latencyMs;
+      this.latencyRecordedCount += 1;
+    }
+  }
+
+  /**
+   * Record a completed inference request where classification succeeded,
+   * but provider usage metadata was missing, malformed, or incomplete.
+   * Does NOT convert missing usage into fabricated token counts or zero cost.
+   */
+  recordSuccessWithUnknownUsage(latencyMs?: number): void {
+    this.requestCount += 1;
+    this.completedProviderRequests += 1;
+    this.successfulClassifications += 1;
+    this.hasUnknownUsage = true;
+    this.unknownUsageCount += 1;
+    if (typeof latencyMs === 'number' && latencyMs > 0) {
       this.totalLatencyMs += latencyMs;
       this.latencyRecordedCount += 1;
     }
@@ -210,6 +233,24 @@ export class UsageTracker {
     const avgLatency =
       this.latencyRecordedCount > 0 ? this.totalLatencyMs / this.latencyRecordedCount : 0;
 
+    let estimatedCostUsd: number | null = null;
+    let costStatus: 'verified_pricing' | 'unverified_unbounded_cost' | 'unknown_usage_cost';
+    let dollarBudgetEnforced = false;
+
+    if (this.hasUnknownUsage) {
+      estimatedCostUsd = null;
+      costStatus = 'unknown_usage_cost';
+      dollarBudgetEnforced = false;
+    } else if (!this.pricingVerified) {
+      estimatedCostUsd = null;
+      costStatus = 'unverified_unbounded_cost';
+      dollarBudgetEnforced = false;
+    } else {
+      estimatedCostUsd = Math.round(this.getEstimatedCostUsd() * 1000000) / 1000000;
+      costStatus = 'verified_pricing';
+      dollarBudgetEnforced = true;
+    }
+
     return {
       requestCount: this.requestCount,
       completedProviderRequests: this.completedProviderRequests,
@@ -223,13 +264,11 @@ export class UsageTracker {
       totalTokens,
       hasUnknownUsage: this.hasUnknownUsage,
       unknownUsageCount: this.unknownUsageCount,
-      estimatedCostUsd: this.pricingVerified
-        ? Math.round(this.getEstimatedCostUsd() * 1000000) / 1000000
-        : 0,
+      estimatedCostUsd,
       pricingVerified: this.pricingVerified,
       hasUnverifiedPricing: !this.pricingVerified,
-      dollarBudgetEnforced: this.pricingVerified,
-      costStatus: this.pricingVerified ? 'verified_pricing' : 'unverified_unbounded_cost',
+      dollarBudgetEnforced,
+      costStatus,
       averageLatencyMs: Math.round(avgLatency * 100) / 100,
       maxRequestsPerRun: this.maxRequestsPerRun,
       dailyBudgetUsd: this.dailyBudgetUsd,

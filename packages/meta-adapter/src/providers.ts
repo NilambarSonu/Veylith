@@ -76,18 +76,23 @@ export const APPROVED_PROVIDERS: Record<ModelProvider, ProviderDefinition> = {
 
 /**
  * Checks if a given URL is a loopback destination.
+ * Covers IPv4 loopback (127.0.0.0/8, 0.0.0.0), localhost, IPv6 loopback (::1, [::1], ::),
+ * and IPv4-mapped IPv6 loopback addresses (::ffff:127.0.0.0/104 or ::ffff:7f00:0/104).
  */
 export function isLoopbackEndpoint(urlString: string): boolean {
   try {
     const url = new URL(urlString);
     const host = url.hostname.toLowerCase();
+    const cleanHost = host.replace(/^\[|\]$/g, '');
     return (
-      host === '127.0.0.1' ||
-      host === 'localhost' ||
-      host === '::1' ||
-      host === '[::1]' ||
-      host === '0.0.0.0' ||
-      host.startsWith('127.')
+      cleanHost === '127.0.0.1' ||
+      cleanHost === 'localhost' ||
+      cleanHost === '::1' ||
+      cleanHost === '::' ||
+      cleanHost === '0.0.0.0' ||
+      cleanHost.startsWith('127.') ||
+      cleanHost.startsWith('::ffff:127.') ||
+      cleanHost.startsWith('::ffff:7f')
     );
   } catch {
     return false;
@@ -96,16 +101,47 @@ export function isLoopbackEndpoint(urlString: string): boolean {
 
 /**
  * Checks if a given URL points to a private or link-local network destination.
+ * Covers RFC 1918 IPv4 private subnets, RFC 3927 link-local, .local/.internal/.lan mDNS/internal names,
+ * IPv6 Unique-Local (RFC 4193 fc00::/7), IPv6 Link-Local (RFC 4291 fe80::/10),
+ * and IPv4-mapped IPv6 private ranges.
  */
 export function isPrivateNetworkEndpoint(urlString: string): boolean {
   try {
     const url = new URL(urlString);
     const host = url.hostname.toLowerCase();
     if (isLoopbackEndpoint(urlString)) return true;
-    if (host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.lan')) return true;
+    const cleanHost = host.replace(/^\[|\]$/g, '');
+
+    if (
+      cleanHost.endsWith('.local') ||
+      cleanHost.endsWith('.internal') ||
+      cleanHost.endsWith('.lan')
+    ) {
+      return true;
+    }
+
+    // IPv6 Unique-Local (fc00::/7 -> fc.. or fd..) and Link-Local (fe80::/10 -> fe8.. to feb..)
+    if (/^f[cd][0-9a-f]{2}:/i.test(cleanHost) || cleanHost.startsWith('fc') || cleanHost.startsWith('fd')) {
+      return true;
+    }
+    if (/^fe[89ab][0-9a-f]:/i.test(cleanHost) || cleanHost.startsWith('fe80')) {
+      return true;
+    }
+
+    // IPv4-mapped IPv6 private ranges (e.g. ::ffff:10.0.0.1, ::ffff:192.168.1.1, ::ffff:169.254.1.1, ::ffff:a00:, ::ffff:c0a8:, ::ffff:a9fe:)
+    if (
+      cleanHost.startsWith('::ffff:10.') ||
+      cleanHost.startsWith('::ffff:192.168.') ||
+      cleanHost.startsWith('::ffff:169.254.') ||
+      cleanHost.startsWith('::ffff:a00:') ||
+      cleanHost.startsWith('::ffff:c0a8:') ||
+      cleanHost.startsWith('::ffff:a9fe:')
+    ) {
+      return true;
+    }
 
     // IPv4 private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16
-    const ipv4Match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+    const ipv4Match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(cleanHost);
     if (ipv4Match) {
       const b0 = parseInt(ipv4Match[1]!, 10);
       const b1 = parseInt(ipv4Match[2]!, 10);
