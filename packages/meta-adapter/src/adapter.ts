@@ -67,6 +67,7 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
       standardInputPriceUsd: def?.pricing?.standardInputPriceUsd,
       cachedInputPriceUsd: def?.pricing?.cachedInputPriceUsd,
       outputTokenPriceUsd: def?.pricing?.outputTokenPriceUsd,
+      allowUnverifiedPricing: this.config.allowUnverifiedPricing ?? false,
     });
   }
 
@@ -355,6 +356,7 @@ ${sanitizedUntrustedContent}
         },
         body: requestBody,
         signal: controller.signal,
+        redirect: 'error',
       });
 
       if (!response.ok) {

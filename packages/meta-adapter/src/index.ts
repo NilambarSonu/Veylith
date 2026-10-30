@@ -24,6 +24,7 @@ export {
   APPROVED_PROVIDERS,
   validateProviderConfiguration,
   isLoopbackEndpoint,
+  isPrivateNetworkEndpoint,
   resolveProviderApiKey,
   sanitizeProviderError,
 } from './providers.js';

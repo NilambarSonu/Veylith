@@ -75,22 +75,59 @@ describe('AI Provider Compatibility (Meta, Fireworks, Baseten)', () => {
       }).not.toThrow();
     });
 
-    it('permits loopback addresses strictly for local unit testing', () => {
+    it('strictly rejects localhost and loopback endpoints in live mode', () => {
       expect(() => {
         validateProviderConfiguration(
           'fireworks',
           'http://127.0.0.1:8788/inference/v1/chat/completions',
           'accounts/fireworks/models/muse-spark-open',
         );
-      }).not.toThrow();
+      }).toThrowError(/Insecure protocol|Loopback destination/);
 
       expect(() => {
         validateProviderConfiguration(
           'baseten',
-          'http://localhost:9999/v1/chat/completions',
+          'https://localhost:9999/v1/chat/completions',
           'meta-models/muse-spark-open-1026',
         );
-      }).not.toThrow();
+      }).toThrowError(/Loopback destination .* is strictly forbidden/);
+
+      expect(() => {
+        validateProviderConfiguration(
+          'meta',
+          'https://127.0.0.1:8080/v1/responses',
+          'muse-spark-1.3',
+        );
+      }).toThrowError(/Loopback destination .* is strictly forbidden/);
+    });
+
+    it('strictly rejects arbitrary HTTP, private network destinations, and non-standard ports', () => {
+      // Insecure HTTP
+      expect(() => {
+        validateProviderConfiguration(
+          'fireworks',
+          'http://api.fireworks.ai/inference/v1/chat/completions',
+          'accounts/fireworks/models/muse-spark-open',
+        );
+      }).toThrowError(/Insecure protocol/);
+
+      // Private network address
+      expect(() => {
+        validateProviderConfiguration(
+          'baseten',
+          'https://192.168.1.100/v1/chat/completions',
+          'meta-models/muse-spark-open-1026',
+        );
+      }).toThrowError(/Private network destination .* is strictly forbidden/);
+
+      // Non-standard port
+      expect(() => {
+        validateProviderConfiguration(
+          'meta',
+          'https://api.meta.ai:8443/v1/responses',
+          'muse-spark-1.3',
+        );
+      }).toThrowError(/Non-standard port/);
     });
 
     it('strictly forbids cross-provider destination routing', () => {
@@ -226,6 +263,7 @@ describe('AI Provider Compatibility (Meta, Fireworks, Baseten)', () => {
         apiKey: 'fw_test_key_sample123456789',
         model: 'accounts/fireworks/models/muse-spark-open',
         endpoint: 'https://api.fireworks.ai/inference/v1/chat/completions',
+        allowUnverifiedPricing: true,
       });
 
       expect(adapter.provider).toBe('fireworks');
@@ -288,6 +326,7 @@ describe('AI Provider Compatibility (Meta, Fireworks, Baseten)', () => {
         provider: 'fireworks',
         mode: 'live',
         apiKey: 'fw_test_key_truncation',
+        allowUnverifiedPricing: true,
       });
 
       const result = await adapter.inspect('Suspicious directive', 'discovery');
@@ -329,6 +368,7 @@ describe('AI Provider Compatibility (Meta, Fireworks, Baseten)', () => {
         provider: 'fireworks',
         mode: 'live',
         apiKey: 'fw_test_key_malformed',
+        allowUnverifiedPricing: true,
       });
 
       const result = await adapter.inspect('Suspicious directive', 'discovery');
@@ -388,6 +428,7 @@ describe('AI Provider Compatibility (Meta, Fireworks, Baseten)', () => {
         apiKey: 'base_test_token_9988776655443322',
         model: 'meta-models/muse-spark-open-1026',
         endpoint: 'https://inference.baseten.co/v1/chat/completions',
+        allowUnverifiedPricing: true,
       });
 
       expect(adapter.provider).toBe('baseten');
@@ -427,6 +468,7 @@ describe('AI Provider Compatibility (Meta, Fireworks, Baseten)', () => {
         provider: 'baseten',
         mode: 'live',
         apiKey: 'base_test_empty_choices',
+        allowUnverifiedPricing: true,
       });
 
       const result = await adapter.inspect('Test payload', 'call_response');
@@ -446,6 +488,7 @@ describe('AI Provider Compatibility (Meta, Fireworks, Baseten)', () => {
         mode: 'live',
         apiKey: 'fw_test_budget',
         maxRequestsPerRun: 2,
+        allowUnverifiedPricing: true,
       });
 
       // Mock two responses
@@ -502,6 +545,7 @@ describe('AI Provider Compatibility (Meta, Fireworks, Baseten)', () => {
         provider: 'baseten',
         mode: 'live',
         apiKey: 'base_test_unknown_usage',
+        allowUnverifiedPricing: true,
       });
 
       const result = await adapter.inspect('Call', 'discovery');

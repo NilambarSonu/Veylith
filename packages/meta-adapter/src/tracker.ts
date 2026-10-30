@@ -27,6 +27,7 @@ export interface UsageTrackerOptions {
   readonly standardInputPriceUsd?: number;
   readonly cachedInputPriceUsd?: number;
   readonly outputTokenPriceUsd?: number;
+  readonly allowUnverifiedPricing?: boolean;
 }
 
 export interface UsageReport {
@@ -45,6 +46,8 @@ export interface UsageReport {
   readonly estimatedCostUsd: number;
   readonly pricingVerified: boolean;
   readonly hasUnverifiedPricing: boolean;
+  readonly dollarBudgetEnforced: boolean;
+  readonly costStatus: 'verified_pricing' | 'unverified_unbounded_cost';
   readonly averageLatencyMs: number;
   readonly maxRequestsPerRun: number;
   readonly dailyBudgetUsd: number;
@@ -68,6 +71,7 @@ export class UsageTracker {
   private readonly maxRequestsPerRun: number;
   private readonly dailyBudgetUsd: number;
   public readonly pricingVerified: boolean;
+  public readonly allowUnverifiedPricing: boolean;
   private readonly standardInputPriceUsd: number;
   private readonly cachedInputPriceUsd: number;
   private readonly outputTokenPriceUsd: number;
@@ -80,6 +84,7 @@ export class UsageTracker {
       this.maxRequestsPerRun = maxRequestsOrOptions.maxRequestsPerRun ?? 10;
       this.dailyBudgetUsd = maxRequestsOrOptions.dailyBudgetUsd ?? 0.25;
       this.pricingVerified = maxRequestsOrOptions.pricingVerified ?? true;
+      this.allowUnverifiedPricing = maxRequestsOrOptions.allowUnverifiedPricing ?? false;
       this.standardInputPriceUsd =
         maxRequestsOrOptions.standardInputPriceUsd ?? 0.00000125;
       this.cachedInputPriceUsd =
@@ -90,6 +95,7 @@ export class UsageTracker {
       this.maxRequestsPerRun = maxRequestsOrOptions;
       this.dailyBudgetUsd = dailyBudgetUsd;
       this.pricingVerified = true;
+      this.allowUnverifiedPricing = false;
       this.standardInputPriceUsd = 0.00000125;
       this.cachedInputPriceUsd = 0.00000015;
       this.outputTokenPriceUsd = 0.00000425;
@@ -99,6 +105,11 @@ export class UsageTracker {
   /**
    * Pre-check before executing an inference request.
    * Throws an error if budget or request limit is exceeded.
+   *
+   * Invariant: A dollar budget is only represented as enforced when pricing
+   * assumptions are verified. If pricing is unverified, execution is refused
+   * unless explicit unverified pricing authorization (allowUnverifiedPricing: true)
+   * is provided, in which case request-count limits remain strictly enforced.
    */
   assertWithinBudget(): void {
     if (this.requestCount >= this.maxRequestsPerRun) {
@@ -112,6 +123,12 @@ export class UsageTracker {
       if (currentCost >= this.dailyBudgetUsd) {
         throw new Error(
           `Local budget safeguard: Daily budget cap reached ($${currentCost.toFixed(4)} >= $${this.dailyBudgetUsd.toFixed(4)}). Inference blocked.`,
+        );
+      }
+    } else {
+      if (!this.allowUnverifiedPricing) {
+        throw new Error(
+          'Local budget safeguard: Provider pricing is unverified. An application dollar budget cap cannot be guaranteed or enforced. To proceed under strict request-count and output-token limits only, pass explicit unverified pricing authorization (allowUnverifiedPricing: true).',
         );
       }
     }
@@ -206,9 +223,13 @@ export class UsageTracker {
       totalTokens,
       hasUnknownUsage: this.hasUnknownUsage,
       unknownUsageCount: this.unknownUsageCount,
-      estimatedCostUsd: Math.round(this.getEstimatedCostUsd() * 1000000) / 1000000,
+      estimatedCostUsd: this.pricingVerified
+        ? Math.round(this.getEstimatedCostUsd() * 1000000) / 1000000
+        : 0,
       pricingVerified: this.pricingVerified,
       hasUnverifiedPricing: !this.pricingVerified,
+      dollarBudgetEnforced: this.pricingVerified,
+      costStatus: this.pricingVerified ? 'verified_pricing' : 'unverified_unbounded_cost',
       averageLatencyMs: Math.round(avgLatency * 100) / 100,
       maxRequestsPerRun: this.maxRequestsPerRun,
       dailyBudgetUsd: this.dailyBudgetUsd,

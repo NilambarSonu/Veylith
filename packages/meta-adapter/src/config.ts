@@ -27,6 +27,7 @@ export interface MetaAdapterConfig {
   readonly dailyBudgetUsd: number;
   readonly maxRequestsPerRun: number;
   readonly reasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
+  readonly allowUnverifiedPricing?: boolean;
 }
 
 export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdapterConfig {
@@ -48,6 +49,10 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
     ? (modeRaw as MetaAiMode)
     : 'mock';
 
+  const allowUnverifiedPricing =
+    overrides?.allowUnverifiedPricing ??
+    process.env['META_ALLOW_UNVERIFIED_PRICING'] === 'true';
+
   let endpoint: string;
   if (overrides?.endpoint && overrides.endpoint.trim().length > 0) {
     endpoint = overrides.endpoint.trim();
@@ -59,14 +64,25 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
       endpoint = trimmed;
     }
   } else if (process.env['META_MODEL_API_ENDPOINT']) {
-    endpoint = process.env['META_MODEL_API_ENDPOINT']!.trim();
+    const envEndpoint = process.env['META_MODEL_API_ENDPOINT']!.trim();
+    if (mode === 'live' && envEndpoint !== def.defaultEndpoint) {
+      throw new Error(
+        `Conflicting ambient META_MODEL_API_ENDPOINT='${envEndpoint}'. In live mode, endpoint must match approved destination '${def.defaultEndpoint}'.`,
+      );
+    }
+    endpoint = envEndpoint;
   } else if (process.env['META_MODEL_API_BASE_URL']) {
     const baseUrl = process.env['META_MODEL_API_BASE_URL']!.trim();
-    if (provider === 'meta' && !baseUrl.endsWith('/responses')) {
-      endpoint = `${baseUrl.replace(/\/$/, '')}/responses`;
-    } else {
-      endpoint = baseUrl;
+    const derivedEndpoint =
+      provider === 'meta' && !baseUrl.endsWith('/responses')
+        ? `${baseUrl.replace(/\/$/, '')}/responses`
+        : baseUrl;
+    if (mode === 'live' && derivedEndpoint !== def.defaultEndpoint) {
+      throw new Error(
+        `Conflicting ambient META_MODEL_API_BASE_URL='${baseUrl}'. In live mode, endpoint must match approved destination '${def.defaultEndpoint}'.`,
+      );
     }
+    endpoint = derivedEndpoint;
   } else {
     endpoint = def.defaultEndpoint;
   }
@@ -123,5 +139,6 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
     dailyBudgetUsd: isNaN(dailyBudgetUsd) ? 0.25 : dailyBudgetUsd,
     maxRequestsPerRun: isNaN(maxRequestsPerRun) ? 10 : maxRequestsPerRun,
     reasoningEffort,
+    allowUnverifiedPricing,
   };
 }

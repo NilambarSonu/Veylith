@@ -83,11 +83,10 @@ describe('MetaMuseSecurityAdapter', () => {
   });
 
   it('handles live mode failure with graceful fallback without throwing', async () => {
-    // Point to non-routable port to trigger network error
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('fetch failed: connection refused'));
     const adapter = new MetaMuseSecurityAdapter({
       mode: 'live',
       apiKey: 'test-dummy-key',
-      apiBaseUrl: 'http://127.0.0.1:19998/v1',
       timeoutMs: 500,
     });
 
@@ -196,10 +195,12 @@ describe('MetaMuseSecurityAdapter', () => {
   });
 
   it('redacts sensitive credentials from live error messages', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(
+      new Error('Connection failed with Authorization: Bearer sk-test-secret-12345678901234567890'),
+    );
     const adapter = new MetaMuseSecurityAdapter({
       mode: 'live',
       apiKey: 'sk-test-secret-12345678901234567890',
-      apiBaseUrl: 'http://127.0.0.1:19998/v1',
       timeoutMs: 300,
     });
 
