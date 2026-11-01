@@ -2,9 +2,6 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   MetaMuseSecurityAdapter,
   extractValidatedUsage,
-  isValidTokenCount,
-  resolveTokenCountWithAliases,
-  resolveOptionalTokenCount,
   isLoopbackEndpoint,
   isPrivateNetworkEndpoint,
   extractIpv4Bytes,
@@ -55,7 +52,9 @@ describe('Veylith — Final Usage Validation & Network Boundary Hardening', () =
 
     // 7. NaN input tokens
     it('Scenario 7: rejects NaN input tokens', () => {
-      expect(extractValidatedUsage({ prompt_tokens: Number.NaN, completion_tokens: 20 })).toBeNull();
+      expect(
+        extractValidatedUsage({ prompt_tokens: Number.NaN, completion_tokens: 20 }),
+      ).toBeNull();
       expect(extractValidatedUsage({ input_tokens: NaN, output_tokens: 20 })).toBeNull();
     });
 
@@ -452,22 +451,38 @@ describe('Veylith — Final Usage Validation & Network Boundary Hardening', () =
       it('strictly forbids non-allowlisted endpoints even if external/public', () => {
         // Public non-approved endpoint
         expect(() => {
-          validateProviderConfiguration('fireworks', 'https://api.openai.com/v1/chat/completions', 'accounts/fireworks/models/muse-spark-open');
+          validateProviderConfiguration(
+            'fireworks',
+            'https://api.openai.com/v1/chat/completions',
+            'accounts/fireworks/models/muse-spark-open',
+          );
         }).toThrowError(/not an approved destination/);
 
         // Trailing path traversal attempts
         expect(() => {
-          validateProviderConfiguration('fireworks', 'https://api.fireworks.ai/inference/v1/chat/completions/../../admin', 'accounts/fireworks/models/muse-spark-open');
+          validateProviderConfiguration(
+            'fireworks',
+            'https://api.fireworks.ai/inference/v1/chat/completions/../../admin',
+            'accounts/fireworks/models/muse-spark-open',
+          );
         }).toThrowError(/not an approved destination/);
 
         // Subdomain spoofing
         expect(() => {
-          validateProviderConfiguration('fireworks', 'https://api.fireworks.ai.attacker.org/inference/v1/chat/completions', 'accounts/fireworks/models/muse-spark-open');
+          validateProviderConfiguration(
+            'fireworks',
+            'https://api.fireworks.ai.attacker.org/inference/v1/chat/completions',
+            'accounts/fireworks/models/muse-spark-open',
+          );
         }).toThrowError(/not an approved destination/);
 
         // Valid approved endpoint succeeds
         expect(() => {
-          validateProviderConfiguration('fireworks', 'https://api.fireworks.ai/inference/v1/chat/completions', 'accounts/fireworks/models/muse-spark-open');
+          validateProviderConfiguration(
+            'fireworks',
+            'https://api.fireworks.ai/inference/v1/chat/completions',
+            'accounts/fireworks/models/muse-spark-open',
+          );
         }).not.toThrow();
       });
     });

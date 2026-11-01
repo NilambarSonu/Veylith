@@ -116,10 +116,22 @@ export function renderAuditExplorer(
       el('span', {}, [
         'Genesis Hash: 0000000000000000000000000000000000000000000000000000000000000000',
       ]),
-      el('span', {}, ['Hash Algorithm: SHA-256']),
+      el('span', {}, ['Hash Algorithm: SHA-256 Canonical JSON']),
     ],
   );
   headerCard.appendChild(genesisBar);
+
+  const integrityCallout = el(
+    'div',
+    { className: 'callout info', style: 'margin-top: 12px; margin-bottom: 0;' },
+    [
+      el('div', { className: 'callout-title' }, ['Cryptographic Audit Scope & Limitations']),
+      el('div', { className: 'callout-desc' }, [
+        'What this establishes: Local sequence continuity and payload immutability. Each audit record links to its predecessor via SHA-256 canonical JSON hashing, detecting in-situ event edits, omissions, or reordering across local runs. | What this does NOT establish: External anchoring, public transparency (e.g. Rekor), or immutable write-once hardware protection. An attacker with full local file write privileges could theoretically regenerate the chain from genesis.',
+      ]),
+    ],
+  );
+  headerCard.appendChild(integrityCallout);
   container.appendChild(headerCard);
 
   // Toolbar (Source selector + Filters + Search)

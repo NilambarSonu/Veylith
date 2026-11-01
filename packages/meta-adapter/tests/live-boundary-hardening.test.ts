@@ -1,11 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import {
   MetaMuseSecurityAdapter,
-  APPROVED_PROVIDERS,
   validateProviderConfiguration,
-  isLoopbackEndpoint,
-  isPrivateNetworkEndpoint,
-  resolveProviderApiKey,
   sanitizeProviderError,
   UsageTracker,
 } from '../src/index.js';
@@ -42,22 +40,14 @@ describe('Veylith — Critical Live-Boundary Security Hardening', () => {
         }).toThrowError(/Loopback destination|Insecure protocol/);
 
         expect(() => {
-          validateProviderConfiguration(
-            'baseten',
-            endpoint,
-            'meta-models/muse-spark-open-1026',
-          );
+          validateProviderConfiguration('baseten', endpoint, 'meta-models/muse-spark-open-1026');
         }).toThrowError(/Loopback destination|Insecure protocol/);
       }
     });
 
     it('strictly rejects non-HTTPS (insecure HTTP) endpoints', () => {
       expect(() => {
-        validateProviderConfiguration(
-          'meta',
-          'http://api.meta.ai/v1/responses',
-          'muse-spark-1.3',
-        );
+        validateProviderConfiguration('meta', 'http://api.meta.ai/v1/responses', 'muse-spark-1.3');
       }).toThrowError(/Insecure protocol 'http:'/);
 
       expect(() => {
@@ -111,11 +101,7 @@ describe('Veylith — Critical Live-Boundary Security Hardening', () => {
   describe('3 & 4: Strict Provider, Endpoint, and Model Binding', () => {
     it('accepts only the exact approved HTTPS endpoint for each provider', () => {
       expect(() => {
-        validateProviderConfiguration(
-          'meta',
-          'https://api.meta.ai/v1/responses',
-          'muse-spark-1.3',
-        );
+        validateProviderConfiguration('meta', 'https://api.meta.ai/v1/responses', 'muse-spark-1.3');
       }).not.toThrow();
 
       expect(() => {
@@ -155,7 +141,9 @@ describe('Veylith — Critical Live-Boundary Security Hardening', () => {
           model: 'accounts/fireworks/models/muse-spark-open',
           endpoint: 'https://api.meta.ai/v1/responses',
         });
-      }).toThrowError(/Endpoint 'https:\/\/api.meta.ai\/v1\/responses' is not an approved destination for provider 'fireworks'/);
+      }).toThrowError(
+        /Endpoint 'https:\/\/api.meta.ai\/v1\/responses' is not an approved destination for provider 'fireworks'/,
+      );
     });
   });
 
@@ -390,21 +378,15 @@ describe('Veylith — Critical Live-Boundary Security Hardening', () => {
 
   describe('14: Live Runner CLI Safeguards (scripts/security-lab/live.ts)', () => {
     const runLiveCli = (extraArgs: string[], extraEnv: Record<string, string> = {}) => {
-      const { spawnSync } = require('node:child_process');
-      const { resolve } = require('node:path');
-      const scriptPath = resolve(__dirname, '../../../scripts/security-lab/live.ts');
-      return spawnSync(
-        process.execPath,
-        ['--import', 'tsx', scriptPath, ...extraArgs],
-        {
-          encoding: 'utf8',
-          cwd: resolve(__dirname, '../../..'),
-          env: {
-            ...process.env,
-            ...extraEnv,
-          },
+      const scriptPath = resolve(process.cwd(), 'scripts/security-lab/live.ts');
+      return spawnSync(process.execPath, ['--import', 'tsx', scriptPath, ...extraArgs], {
+        encoding: 'utf8',
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          ...extraEnv,
         },
-      );
+      });
     };
 
     it('rejects live execution with Fireworks when pricing is unverified and --allow-unverified-pricing is omitted', () => {

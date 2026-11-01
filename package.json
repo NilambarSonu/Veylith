@@ -28,6 +28,7 @@
     "validate:live": "tsx scripts/live-validation-runner.ts",
     "eval:holdout": "vitest run tests/integration/holdout-evaluation.test.ts",
     "stdio": "tsx apps/stdio-adapter/src/index.ts",
+    "demo": "tsx scripts/demo.ts",
     "demo:client": "tsx scripts/demo-real-client.ts",
     "dashboard": "pnpm --filter @veylith/research-dashboard start",
     "dashboard:dev": "pnpm --filter @veylith/research-dashboard dev",

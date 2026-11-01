@@ -81,10 +81,15 @@ export const APPROVED_PROVIDERS: Record<ModelProvider, ProviderDefinition> = {
  * 3. IPv4-mapped IPv6 in WHATWG hex format (e.g. "::ffff:7f00:1", "::ffff:ac10:1", "::ffff:a00:1")
  */
 export function extractIpv4Bytes(cleanHost: string): [number, number, number, number] | null {
-  const normalized = cleanHost.replace(/^\[|\]$/g, '').trim().toLowerCase();
+  const normalized = cleanHost
+    .replace(/^\[|\]$/g, '')
+    .trim()
+    .toLowerCase();
 
   // Check dotted-decimal IPv4 or ::ffff:d.d.d.d or 0:0:0:0:0:ffff:d.d.d.d
-  const dotted = /^(?:::ffff:|(?:0+:){5}ffff:)?(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/i.exec(normalized);
+  const dotted = /^(?:::ffff:|(?:0+:){5}ffff:)?(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/i.exec(
+    normalized,
+  );
   if (dotted) {
     const b0 = parseInt(dotted[1]!, 10);
     const b1 = parseInt(dotted[2]!, 10);
@@ -118,7 +123,12 @@ export function isLoopbackEndpoint(urlString: string): boolean {
     const cleanHost = host.replace(/^\[|\]$/g, '');
 
     // Hostname checks
-    if (cleanHost === 'localhost' || cleanHost === '::1' || cleanHost === '::' || cleanHost === '0.0.0.0') {
+    if (
+      cleanHost === 'localhost' ||
+      cleanHost === '::1' ||
+      cleanHost === '::' ||
+      cleanHost === '0.0.0.0'
+    ) {
       return true;
     }
 
@@ -159,7 +169,11 @@ export function isPrivateNetworkEndpoint(urlString: string): boolean {
     }
 
     // IPv6 Unique-Local (RFC 4193 fc00::/7 -> fc.. or fd..)
-    if (/^f[cd][0-9a-f]{0,2}:/i.test(cleanHost) || cleanHost.startsWith('fc') || cleanHost.startsWith('fd')) {
+    if (
+      /^f[cd][0-9a-f]{0,2}:/i.test(cleanHost) ||
+      cleanHost.startsWith('fc') ||
+      cleanHost.startsWith('fd')
+    ) {
       return true;
     }
 
@@ -306,6 +320,6 @@ export function sanitizeProviderError(errorMessage: string, activeApiKey?: strin
   // Scrub common Bearer tokens and key formats
   return sanitized
     .replace(/(?:Bearer\s+)[a-zA-Z0-9_\-.]+/gi, 'Bearer [REDACTED]')
-    .replace(/\b(?:sk|fw|fwa|base|key)_[a-zA-Z0-9_\-]{16,}\b/gi, '[REDACTED_KEY]')
+    .replace(/\b(?:sk|fw|fwa|base|key)_[a-zA-Z0-9_-]{16,}\b/gi, '[REDACTED_KEY]')
     .replace(/\bsk-[a-zA-Z0-9_\-.]{16,}\b/gi, 'sk-[REDACTED]');
 }

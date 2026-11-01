@@ -6,11 +6,13 @@ import {
   extractValidatedUsage,
 } from '../../packages/meta-adapter/src/index.js';
 /** Manual-only real-provider evaluation. No keys read from disk; no retries. */
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { Fixture } from './fixture.js';
-import { verifyManifest, datasetRoot } from './integrity.js';
+import { resolveDatasetProvenance } from './integrity.js';
 import { metrics } from './report.js';
 import type { Observation } from './types.js';
 import type { LabCase } from './types.js';
@@ -76,7 +78,11 @@ if (!def.pricingVerified) {
 
 // Check conflicting ambient endpoint overrides
 const ambientEndpoint = process.env['META_MODEL_API_ENDPOINT'];
-if (ambientEndpoint && ambientEndpoint.trim().length > 0 && ambientEndpoint !== def.defaultEndpoint) {
+if (
+  ambientEndpoint &&
+  ambientEndpoint.trim().length > 0 &&
+  ambientEndpoint !== def.defaultEndpoint
+) {
   throw new Error(
     `Conflicting ambient META_MODEL_API_ENDPOINT='${ambientEndpoint}' detected. In live runner mode, endpoint must match approved provider default '${def.defaultEndpoint}'.`,
   );
@@ -95,13 +101,18 @@ if (
 
 const credentialKey = resolveProviderApiKey(provider);
 if (!credentialKey)
-  throw new Error(`Enter the key locally using the documented silent terminal prompt: ${def.credentialEnvVar}`);
+  throw new Error(
+    `Enter the key locally using the documented silent terminal prompt: ${def.credentialEnvVar}`,
+  );
 
+const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const destination = process.env['SECURITY_LAB_DESTINATION'] ?? 'security-lab/live-results';
-const datasetPath = process.env['SECURITY_LAB_DATASET'] ?? `${datasetRoot}/live-reserve.json`;
-const integrity = process.env['SECURITY_LAB_DATASET']
-  ? { manifestSha256: 'mock-test-manifest' }
-  : verifyManifest();
+const customDatasetEnv = process.env['SECURITY_LAB_DATASET'];
+
+const provenance = resolveDatasetProvenance({
+  customDatasetPath: customDatasetEnv,
+  repoRoot,
+});
 
 mkdirSync(destination, { recursive: true });
 if (existsSync(`${destination}/attempt.json`))
@@ -112,29 +123,34 @@ if (existsSync(`${destination}/attempt.json`))
 // Mark exposure before any provider request; even an interrupted run cannot silently reuse unseen cases.
 writeFileSync(
   `${destination}/attempt.json`,
-  JSON.stringify({
-    gitCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-    manifestSha256: integrity.manifestSha256,
-    provider: def.id,
-    model: def.defaultModel,
-    pricingVerified: def.pricingVerified,
-    allowUnverifiedPricing,
-    dollarBudgetEnforced: def.pricingVerified,
-    maxRequests,
-    maxTokensApproximation: maxTokens,
-    tokenAccounting: 'conservative_input_bytes_plus_output_limit',
-    maxCostUsd: def.pricingVerified ? maxCost : 'unverified_unbounded',
-    inputRate: def.pricingVerified ? inputRate : 'unverified_estimate_only',
-    outputRate: def.pricingVerified ? outputRate : 'unverified_estimate_only',
-    cachedRate: def.pricingVerified ? cachedRate : 'unverified_estimate_only',
-    authorizedManually: true,
-  }, null, 2),
+  JSON.stringify(
+    {
+      gitCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+      datasetPath: provenance.datasetPath,
+      datasetSha256: provenance.datasetSha256,
+      manifestVerified: provenance.manifestVerified,
+      manifestVerification: provenance.manifestVerification,
+      manifestSha256: provenance.manifestSha256,
+      provider: def.id,
+      model: def.defaultModel,
+      pricingVerified: def.pricingVerified,
+      allowUnverifiedPricing,
+      dollarBudgetEnforced: def.pricingVerified,
+      maxRequests,
+      maxTokensApproximation: maxTokens,
+      tokenAccounting: 'conservative_input_bytes_plus_output_limit',
+      maxCostUsd: def.pricingVerified ? maxCost : 'unverified_unbounded',
+      inputRate: def.pricingVerified ? inputRate : 'unverified_estimate_only',
+      outputRate: def.pricingVerified ? outputRate : 'unverified_estimate_only',
+      cachedRate: def.pricingVerified ? cachedRate : 'unverified_estimate_only',
+      authorizedManually: true,
+    },
+    null,
+    2,
+  ),
 );
 
-const reserved = JSON.parse(readFileSync(datasetPath, 'utf8')).slice(
-  0,
-  maxRequests,
-);
+const reserved: LabCase[] = provenance.cases.slice(0, maxRequests);
 const fixture = new Fixture();
 await fixture.start();
 const nativeFetch = globalThis.fetch;
@@ -160,11 +176,7 @@ function knownCost(): number | null {
     const input = u.input_tokens ?? u.prompt_tokens ?? 0,
       cached = u.input_tokens_details?.cached_tokens ?? 0;
     const output = u.output_tokens ?? u.completion_tokens ?? 0;
-    return (
-      sum +
-      ((input - cached) * inputRate + cached * cachedRate + output * outputRate) /
-        1e6
-    );
+    return sum + ((input - cached) * inputRate + cached * cachedRate + output * outputRate) / 1e6;
   }, 0);
 }
 
@@ -202,7 +214,11 @@ globalThis.fetch = async (input, init) => {
       try {
         const parsedBody = JSON.parse(String(init.body));
         if (parsedBody && typeof parsedBody === 'object') {
-          if ('messages' in parsedBody || 'reasoning' in parsedBody || ('model' in parsedBody && !url.pathname.includes('/mcp'))) {
+          if (
+            'messages' in parsedBody ||
+            'reasoning' in parsedBody ||
+            ('model' in parsedBody && !url.pathname.includes('/mcp'))
+          ) {
             throw new Error(
               'Security boundary violation: Model inference request cannot be dispatched to loopback destination.',
             );
@@ -215,7 +231,8 @@ globalThis.fetch = async (input, init) => {
 
     // Only allow expected MCP fixture and gateway ports
     const isFixtureTraffic = url.href.startsWith(fixture.url);
-    const isGatewayTraffic = typeof addr === 'object' && addr !== null && url.port === String(addr.port);
+    const isGatewayTraffic =
+      typeof addr === 'object' && addr !== null && url.port === String(addr.port);
     if (!isFixtureTraffic && !isGatewayTraffic && !url.pathname.includes('/mcp')) {
       throw new Error(
         `Security boundary violation: Loopback traffic to unexpected destination '${url.href}' is forbidden.`,
@@ -264,10 +281,7 @@ globalThis.fetch = async (input, init) => {
   const estimatedReservationBound = conservativeInputBytesBound + 512;
   const costBound = (conservativeInputBytesBound * inputRate + 512 * outputRate) / 1e6;
 
-  if (
-    attemptedRequests >= maxRequests ||
-    reservedTokens + estimatedReservationBound > maxTokens
-  ) {
+  if (attemptedRequests >= maxRequests || reservedTokens + estimatedReservationBound > maxTokens) {
     throw new Error('Manual run request or conservative token-reservation limit reached');
   }
 
@@ -297,7 +311,8 @@ globalThis.fetch = async (input, init) => {
     try {
       const body = (await response.clone().json()) as Record<string, unknown>;
       const rawUsage = body['usage'];
-      entry['providerUsage'] = rawUsage && typeof rawUsage === 'object' && !Array.isArray(rawUsage) ? rawUsage : null;
+      entry['providerUsage'] =
+        rawUsage && typeof rawUsage === 'object' && !Array.isArray(rawUsage) ? rawUsage : null;
       const validated = extractValidatedUsage(rawUsage);
       entry['usageKnown'] = validated !== null;
       entry['providerStatus'] = body['status'] ?? null;
@@ -353,7 +368,12 @@ delete process.env['AUDIT_LOG_PATH'];
 const gw = await import('../../apps/gateway/src/server.js');
 const inspect = gw.metaAdapter.inspect.bind(gw.metaAdapter);
 gw.metaAdapter.inspect = async (content, stage, metadata) => {
-  if (stage !== 'call_response' || !reserved.some((c: { input: string }) => c.input === content))
+  if (
+    stage !== 'call_response' ||
+    !reserved.some((c) =>
+      Array.isArray(c.input) ? c.input.includes(content) : c.input === content,
+    )
+  )
     throw new Error('Live model input must exactly match a reserved synthetic response');
   return inspect(content, stage, metadata);
 };
@@ -487,7 +507,9 @@ try {
 
       const dollarBudgetEnforced = def.pricingVerified && !runHasUnknownUsage;
       const costStatus = def.pricingVerified
-        ? (runHasUnknownUsage ? 'unknown_usage_cost' : 'verified_pricing')
+        ? runHasUnknownUsage
+          ? 'unknown_usage_cost'
+          : 'verified_pricing'
         : 'unverified_unbounded_cost';
 
       const stopNotice = stopReason
@@ -516,8 +538,10 @@ try {
             attemptedRequests,
             hasUnknownUsage: runHasUnknownUsage,
             estimatedKnownUsageCostUsd: knownCost(),
-            estimatedMaximumCostUsd: def.pricingVerified && !runHasUnknownUsage ? reservedCost : null,
-            providerBilling: 'verify independently on provider dashboard; application cannot guarantee provider-side account cap',
+            estimatedMaximumCostUsd:
+              def.pricingVerified && !runHasUnknownUsage ? reservedCost : null,
+            providerBilling:
+              'verify independently on provider dashboard; application cannot guarantee provider-side account cap',
             confidenceIsCalibrated: false,
           },
           null,

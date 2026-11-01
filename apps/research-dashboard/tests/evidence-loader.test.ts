@@ -199,6 +199,26 @@ describe('Veylith Research Dashboard — Evidence Loader & Schema Verification',
     });
   });
 
+  it('loads Phase 2A fixed internal validation fixture data with exact class and macro metrics', () => {
+    const p2a = loader.getPhase2aValidationData();
+    expect(p2a.totalSamples).toBe(68);
+    expect(p2a.fixturePath).toBe('tests/fixtures/holdout-corpus.json');
+    expect(p2a.confusionMatrix.tp).toBe(15);
+    expect(p2a.confusionMatrix.tn).toBe(35);
+    expect(p2a.confusionMatrix.fp).toBe(1);
+    expect(p2a.confusionMatrix.fn).toBe(17);
+    expect(p2a.classSpecificMetrics.attackPrecision).toBeCloseTo(0.938, 2);
+    expect(p2a.classSpecificMetrics.attackRecall).toBeCloseTo(0.469, 2);
+    expect(p2a.classSpecificMetrics.attackF1).toBeCloseTo(0.625, 2);
+    expect(p2a.classSpecificMetrics.benignPrecision).toBeCloseTo(0.673, 2);
+    expect(p2a.classSpecificMetrics.benignRecall).toBeCloseTo(0.972, 2);
+    expect(p2a.classSpecificMetrics.benignF1).toBeCloseTo(0.795, 2);
+    expect(p2a.macroMetrics.macroPrecision).toBeCloseTo(0.805, 2);
+    expect(p2a.macroMetrics.macroRecall).toBeCloseTo(0.72, 2);
+    expect(p2a.macroMetrics.macroF1).toBeCloseTo(0.71, 2);
+    expect(p2a.macroMetrics.overallAccuracy).toBeCloseTo(0.735, 2);
+  });
+
   it('loads the 8 documented unresolved security findings', () => {
     const findings = loader.getSecurityFindings();
     expect(findings).toHaveLength(8);

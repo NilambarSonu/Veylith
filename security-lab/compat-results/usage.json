@@ -1,0 +1,31 @@
+{
+  "attemptedRequests": 1,
+  "reservedTokens": 2367,
+  "reservedCost": 0.00449475,
+  "pricingVerified": true,
+  "dollarBudgetEnforced": true,
+  "hasUnknownUsage": false,
+  "usage": [
+    {
+      "attempt": 1,
+      "tokenAccounting": "conservative_input_bytes_plus_output_limit",
+      "conservativeInputBytesBound": 1855,
+      "outputTokenLimit": 512,
+      "estimatedMaximumCostUsd": 0.00449475,
+      "providerUsage": {
+        "input_tokens": 492,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens": 107,
+        "output_tokens_details": {
+          "reasoning_tokens": 50
+        },
+        "total_tokens": 599
+      },
+      "usageKnown": true,
+      "httpStatus": 200,
+      "providerStatus": "completed"
+    }
+  ]
+}

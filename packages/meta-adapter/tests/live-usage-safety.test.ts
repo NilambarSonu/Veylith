@@ -3,7 +3,6 @@ import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
   MetaMuseSecurityAdapter,
-  APPROVED_PROVIDERS,
   validateProviderConfiguration,
   isLoopbackEndpoint,
   isPrivateNetworkEndpoint,
@@ -220,7 +219,11 @@ describe('Veylith — Final Live-Usage Safety Remediation', () => {
 
   describe('Objective 3: Offline Adversarial Credential Exfiltration Protection', () => {
     it('guarantees fake secret canary token never reaches local malicious server, loopback, or private destinations', async () => {
-      const capturedRequests: Array<{ url: string; method: string; headers: http.IncomingHttpHeaders }> = [];
+      const capturedRequests: Array<{
+        url: string;
+        method: string;
+        headers: http.IncomingHttpHeaders;
+      }> = [];
 
       // Create controlled local mock server
       const localServer = http.createServer((req, res) => {
@@ -269,7 +272,9 @@ describe('Veylith — Final Live-Usage Safety Remediation', () => {
             endpoint: 'https://malicious-collector.evil.com/v1/responses',
             model: 'muse-spark-1.3',
           });
-        }).toThrowError(/Endpoint 'https:\/\/malicious-collector\.evil\.com\/v1\/responses' is not an approved destination/);
+        }).toThrowError(
+          /Endpoint 'https:\/\/malicious-collector\.evil\.com\/v1\/responses' is not an approved destination/,
+        );
 
         // 4. Conflicting ambient override attempt
         const origEnv = process.env['META_MODEL_API_ENDPOINT'];
@@ -349,28 +354,26 @@ describe('Veylith — Final Live-Usage Safety Remediation', () => {
           'x-veylith-session-id': 'vyl-sess-test-1234',
         },
       };
-      expect(() =>
-        interceptor('http://127.0.0.1:8788/mcp', legitimateMcpRequest),
-      ).not.toThrow();
+      expect(() => interceptor('http://127.0.0.1:8788/mcp', legitimateMcpRequest)).not.toThrow();
 
       // 2. Accidental Authorization header on loopback request throws
       const contaminatedMcpRequest = {
         headers: {
           'x-veylith-client-id': 'manual-live',
-          'authorization': 'Bearer CANARY_KEY_12345',
+          authorization: 'Bearer CANARY_KEY_12345',
         },
       };
-      expect(() =>
-        interceptor('http://127.0.0.1:8788/mcp', contaminatedMcpRequest),
-      ).toThrowError(/Security boundary violation: Authorization header with provider credentials/);
+      expect(() => interceptor('http://127.0.0.1:8788/mcp', contaminatedMcpRequest)).toThrowError(
+        /Security boundary violation: Authorization header with provider credentials/,
+      );
 
       // 3. Model inference payload dispatched to loopback throws
       const modelPayloadOnLoopback = {
         body: JSON.stringify({ model: 'muse-spark-1.3', messages: [] }),
       };
-      expect(() =>
-        interceptor('http://127.0.0.1:8788/mcp', modelPayloadOnLoopback),
-      ).toThrowError(/Security boundary violation: Model inference request cannot be dispatched to loopback/);
+      expect(() => interceptor('http://127.0.0.1:8788/mcp', modelPayloadOnLoopback)).toThrowError(
+        /Security boundary violation: Model inference request cannot be dispatched to loopback/,
+      );
     });
   });
 
@@ -407,7 +410,11 @@ describe('Veylith — Final Live-Usage Safety Remediation', () => {
       for (const endpoint of ipv6Privates) {
         expect(isPrivateNetworkEndpoint(endpoint)).toBe(true);
         expect(() => {
-          validateProviderConfiguration('fireworks', endpoint, 'accounts/fireworks/models/muse-spark-open');
+          validateProviderConfiguration(
+            'fireworks',
+            endpoint,
+            'accounts/fireworks/models/muse-spark-open',
+          );
         }).toThrowError(/Private network destination|not an approved destination/);
       }
     });
@@ -436,17 +443,29 @@ describe('Veylith — Final Live-Usage Safety Remediation', () => {
       }).not.toThrow();
 
       expect(() => {
-        validateProviderConfiguration('meta', 'https://api.meta.ai/v1/responses/', 'muse-spark-1.3');
+        validateProviderConfiguration(
+          'meta',
+          'https://api.meta.ai/v1/responses/',
+          'muse-spark-1.3',
+        );
       }).not.toThrow();
 
       // Subdomain spoofing attempts must fail
       expect(() => {
-        validateProviderConfiguration('meta', 'https://api.meta.ai.attacker.com/v1/responses', 'muse-spark-1.3');
+        validateProviderConfiguration(
+          'meta',
+          'https://api.meta.ai.attacker.com/v1/responses',
+          'muse-spark-1.3',
+        );
       }).toThrowError(/not an approved destination/);
 
       // Path traversal attempts must fail
       expect(() => {
-        validateProviderConfiguration('meta', 'https://api.meta.ai/v1/responses/../other', 'muse-spark-1.3');
+        validateProviderConfiguration(
+          'meta',
+          'https://api.meta.ai/v1/responses/../other',
+          'muse-spark-1.3',
+        );
       }).toThrowError(/not an approved destination/);
     });
   });

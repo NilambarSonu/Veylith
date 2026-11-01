@@ -105,9 +105,10 @@ export function resolveTokenCountWithAliases(
  * Rejects if provided values conflict or are invalid token counts.
  * Returns value 0 if none of the candidates are provided.
  */
-export function resolveOptionalTokenCount(
-  ...candidates: unknown[]
-): { valid: boolean; value: number } {
+export function resolveOptionalTokenCount(...candidates: unknown[]): {
+  valid: boolean;
+  value: number;
+} {
   const present = candidates.filter((c) => c !== undefined);
   if (present.length === 0) {
     return { valid: true, value: 0 };
@@ -171,11 +172,9 @@ export function extractValidatedUsage(rawUsage: unknown): TokenUsage | null {
   }
 
   const promptDetails = (u['prompt_tokens_details'] ?? u['input_tokens_details']) as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   const inputDetails = (u['input_tokens_details'] ?? u['prompt_tokens_details']) as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
 
   const cachedRes = resolveOptionalTokenCount(
     promptDetails && typeof promptDetails === 'object' && !Array.isArray(promptDetails)
@@ -188,11 +187,9 @@ export function extractValidatedUsage(rawUsage: unknown): TokenUsage | null {
   );
 
   const compDetails = (u['completion_tokens_details'] ?? u['output_tokens_details']) as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   const outDetails = (u['output_tokens_details'] ?? u['completion_tokens_details']) as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
 
   const reasoningRes = resolveOptionalTokenCount(
     compDetails && typeof compDetails === 'object' && !Array.isArray(compDetails)
@@ -539,11 +536,13 @@ ${sanitizedUntrustedContent}
         // OpenAI Chat Completions protocol (Fireworks, Baseten)
         extractedUsage = extractValidatedUsage(rawJson['usage']);
 
-        const choices = rawJson['choices'] as Array<{
-          message?: { content?: string };
-          text?: string;
-          finish_reason?: string;
-        }> | undefined;
+        const choices = rawJson['choices'] as
+          | Array<{
+              message?: { content?: string };
+              text?: string;
+              finish_reason?: string;
+            }>
+          | undefined;
 
         if (!Array.isArray(choices) || choices.length === 0) {
           throw new Error(`${def.name} model returned no choices`);
@@ -551,9 +550,7 @@ ${sanitizedUntrustedContent}
 
         const firstChoice = choices[0];
         if (firstChoice?.finish_reason === 'length') {
-          throw new Error(
-            `${def.name} model response was truncated (finish_reason=length)`,
-          );
+          throw new Error(`${def.name} model response was truncated (finish_reason=length)`);
         }
 
         if (firstChoice?.message?.content && typeof firstChoice.message.content === 'string') {
@@ -572,7 +569,9 @@ ${sanitizedUntrustedContent}
         const status = rawJson['status'];
         const finishReason = rawJson['finish_reason'];
         const incompleteDetails = rawJson['incomplete_details'];
-        const output = rawJson['output'] as Array<{ finish_reason?: string; status?: string; text?: string; content?: unknown }> | undefined;
+        const output = rawJson['output'] as
+          | Array<{ finish_reason?: string; status?: string; text?: string; content?: unknown }>
+          | undefined;
 
         const isStatusIncomplete =
           status === 'incomplete' ||
@@ -590,7 +589,10 @@ ${sanitizedUntrustedContent}
 
         if (typeof rawJson['text'] === 'string' && (rawJson['text'] as string).trim().length > 0) {
           rawText = rawJson['text'] as string;
-        } else if (typeof rawJson['response'] === 'string' && (rawJson['response'] as string).trim().length > 0) {
+        } else if (
+          typeof rawJson['response'] === 'string' &&
+          (rawJson['response'] as string).trim().length > 0
+        ) {
           rawText = rawJson['response'] as string;
         } else if (Array.isArray(output) && output.length > 0) {
           for (const item of output) {

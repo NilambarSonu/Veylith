@@ -165,6 +165,8 @@ describe('Veylith Research Dashboard — Local HTTP Server & Read-Only API', () 
     expect(json.metricsSummary!.frozenHoldoutCount).toBe(56);
     expect(json.metricsSummary!.reservedLiveCandidates).toBe(6);
     expect(json.metricsSummary!.automatedTestsPassed).toBe(296);
+    expect(json.metricsSummary!.workspaceTestsPassed).toBe(400);
+    expect(json.metricsSummary!.workspaceTestsTotal).toBe(400);
     expect(json.metricsSummary!.phase2fTestsPassed).toBe(252);
     expect(json.metricsSummary!.reliabilityProbesPassed).toBe(13);
     expect(json.metricsSummary!.reliabilityProbesFailed).toBe(2);
@@ -205,6 +207,18 @@ describe('Veylith Research Dashboard — Local HTTP Server & Read-Only API', () 
     expect(json.phase2eHoldout).toBeDefined();
     expect(json.phase2eHoldout!.runs[0]!.split).toBe('holdout');
     expect(json.phase2eHoldout!.runs[0]!.metrics.samples).toBe(56);
+
+    // Check Phase 2A Validation Data
+    interface Phase2aValidationPayload {
+      totalSamples: number;
+      classSpecificMetrics: { attackPrecision: number };
+      macroMetrics: { macroPrecision: number };
+    }
+    const p2a = (json as Record<string, unknown>).phase2aValidation as Phase2aValidationPayload;
+    expect(p2a).toBeDefined();
+    expect(p2a.totalSamples).toBe(68);
+    expect(p2a.classSpecificMetrics.attackPrecision).toBeCloseTo(0.938, 2);
+    expect(p2a.macroMetrics.macroPrecision).toBeCloseTo(0.805, 2);
   });
 
   it('GET /api/audit returns 200 with paginated, secret-redacted audit events', async () => {

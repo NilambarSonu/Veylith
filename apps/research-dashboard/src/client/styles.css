@@ -999,6 +999,170 @@ body {
   gap: 12px;
 }
 
+/* Architecture Flow & Inspection Visuals */
+.arch-flow-card {
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.arch-flow-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.arch-diagram {
+  display: grid;
+  grid-template-columns: 1fr auto 1.4fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.arch-node {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px 12px;
+  text-align: center;
+}
+
+.arch-node.core-gateway {
+  border-color: rgba(0, 191, 255, 0.4);
+  background: linear-gradient(180deg, rgba(0, 191, 255, 0.08) 0%, rgba(26, 39, 64, 0.6) 100%);
+}
+
+.arch-node-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.arch-node-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.arch-node-sub-mono {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent-primary);
+  margin-top: 4px;
+}
+
+.arch-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.arch-arrow svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+.inspection-stages-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.stage-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stage-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stage-num-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 191, 255, 0.15);
+  color: var(--accent-primary);
+  border: 1px solid rgba(0, 191, 255, 0.3);
+}
+
+.stage-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.stage-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.stage-footer {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid rgba(34, 51, 84, 0.5);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+
+.decisions-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.decision-card {
+  background: var(--bg-main);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.decision-badge-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .arch-diagram {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .arch-arrow {
+    transform: rotate(90deg);
+    padding: 6px 0;
+  }
+}
+
 .spinner {
   width: 32px;
   height: 32px;

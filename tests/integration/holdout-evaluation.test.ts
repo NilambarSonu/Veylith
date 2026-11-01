@@ -1,14 +1,24 @@
 /**
- * Phase 2A: Independent Holdout Evaluation Suite.
+ * Phase 2A: Fixed Internal Validation Fixture Evaluation Suite.
  *
- * Evaluates the 68-item holdout corpus (tests/fixtures/holdout-corpus.json)
+ * Evaluates the 68-item validation corpus (tests/fixtures/holdout-corpus.json)
  * spanning multilingual injections, role spoofing, encoded payloads,
  * benign security documentation, and legitimate admin operations.
  *
+ * Note on Dataset Provenance:
+ *   Phase 2A fixed internal validation fixture: 68 curated samples, comprising
+ *   32 malicious and 36 benign cases. This dataset is distinct from the earlier
+ *   Phase 1 corpus but was publicly present in the repository and available
+ *   during subsequent development; it should not be described as a blind or
+ *   external holdout.
+ *
  * Calculates:
  *   - Per-stage confusion matrices (discovery, call_arguments, call_response)
- *   - Deterministic-only baseline vs. Hybrid 3-tier pipeline
- *   - Precision, Recall, F1, and Latency distributions
+ *   - Attack-class metrics (precision 93.8%, recall 46.9%, F1 62.5%)
+ *   - Benign-class metrics (precision 67.3%, recall 97.2%, F1 79.5%)
+ *   - Macro-averaged metrics (precision 80.5%, recall 72.0%, F1 71.0%)
+ *   - Overall accuracy (73.5%)
+ *   - Latency distributions
  */
 
 import { describe, it, expect } from 'vitest';
@@ -173,10 +183,23 @@ describe('Phase 2A: Independent Holdout Evaluation', () => {
     const totalFN =
       stageResults.discovery.fn + stageResults.call_arguments.fn + stageResults.call_response.fn;
 
-    const overallPrecision = totalTP / (totalTP + totalFP || 1);
-    const overallRecall = totalTP / (totalTP + totalFN || 1);
-    const overallF1 =
-      (2 * overallPrecision * overallRecall) / (overallPrecision + overallRecall || 1);
+    // Attack-class (positive) metrics
+    const attackPrecision = totalTP / (totalTP + totalFP || 1);
+    const attackRecall = totalTP / (totalTP + totalFN || 1);
+    const attackF1 = (2 * attackPrecision * attackRecall) / (attackPrecision + attackRecall || 1);
+
+    // Benign-class (negative) metrics
+    const benignPrecision = totalTN / (totalTN + totalFN || 1);
+    const benignRecall = totalTN / (totalTN + totalFP || 1);
+    const benignF1 = (2 * benignPrecision * benignRecall) / (benignPrecision + benignRecall || 1);
+
+    // Macro-averaged metrics (unweighted mean across both classes)
+    const macroPrecision = (attackPrecision + benignPrecision) / 2;
+    const macroRecall = (attackRecall + benignRecall) / 2;
+    const macroF1 = (attackF1 + benignF1) / 2;
+
+    // Overall accuracy
+    const overallAccuracy = (totalTP + totalTN) / (corpus.length || 1);
 
     const discMetrics = calculateMetrics(stageResults.discovery);
     const argsMetrics = calculateMetrics(stageResults.call_arguments);
@@ -185,10 +208,13 @@ describe('Phase 2A: Independent Holdout Evaluation', () => {
     const usage = adapter.tracker.getReport();
 
     console.log('\n========================================================================');
-    console.log('         VEYLITH PHASE 2A — INDEPENDENT HOLDOUT EVALUATION REPORT        ');
+    console.log('   VEYLITH PHASE 2A — FIXED INTERNAL VALIDATION FIXTURE REPORT          ');
     console.log('========================================================================');
     console.log(
-      `Corpus Size: ${corpus.length} samples (Completely independent from Phase 1 benchmark)`,
+      `Dataset: Phase 2A fixed internal validation fixture (68 curated samples: 32 malicious, 36 benign)`,
+    );
+    console.log(
+      `Note: Distinct from Phase 1 corpus but publicly present in repository (not a blind holdout).`,
     );
     console.log(`Evaluation Mode: Hybrid 3-tier Pipeline (Deterministic + Heuristic + Mock Muse)`);
     console.log('------------------------------------------------------------------------');
@@ -225,15 +251,30 @@ describe('Phase 2A: Independent Holdout Evaluation', () => {
       `  Tier 1 Blocks: ${stageResults.call_response.deterministicCatches} | Tier 3 Calls: ${stageResults.call_response.tier3Evaluations}`,
     );
     console.log('------------------------------------------------------------------------');
-    console.log('OVERALL HOLDOUT PERFORMANCE:');
-    console.log(`  Total Evaluated: ${corpus.length}`);
-    console.log(`  True Positives : ${totalTP} / 32 malicious`);
-    console.log(`  True Negatives : ${totalTN} / 36 benign`);
-    console.log(`  False Positives: ${totalFP}`);
-    console.log(`  False Negatives: ${totalFN}`);
-    console.log(`  Macro Precision: ${(overallPrecision * 100).toFixed(1)}%`);
-    console.log(`  Macro Recall   : ${(overallRecall * 100).toFixed(1)}%`);
-    console.log(`  Macro F1 Score : ${(overallF1 * 100).toFixed(1)}%`);
+    console.log('OVERALL CLASSIFICATION PERFORMANCE:');
+    console.log(`  Total Evaluated        : ${corpus.length}`);
+    console.log(`  True Positives (TP)    : ${totalTP} / 32 malicious`);
+    console.log(`  True Negatives (TN)    : ${totalTN} / 36 benign`);
+    console.log(`  False Positives (FP)   : ${totalFP}`);
+    console.log(`  False Negatives (FN)   : ${totalFN}`);
+    console.log('------------------------------------------------------------------------');
+    console.log('CLASS-SPECIFIC METRICS:');
+    console.log(`  Attack-Class Precision : ${(attackPrecision * 100).toFixed(1)}% (15/16)`);
+    console.log(
+      `  Attack-Class Recall    : ${(attackRecall * 100).toFixed(1)}% (15/32 sensitivity)`,
+    );
+    console.log(`  Attack-Class F1 Score  : ${(attackF1 * 100).toFixed(1)}%`);
+    console.log(`  Benign-Class Precision : ${(benignPrecision * 100).toFixed(1)}% (35/52)`);
+    console.log(
+      `  Benign-Class Recall    : ${(benignRecall * 100).toFixed(1)}% (35/36 specificity)`,
+    );
+    console.log(`  Benign-Class F1 Score  : ${(benignF1 * 100).toFixed(1)}%`);
+    console.log('------------------------------------------------------------------------');
+    console.log('MACRO-AVERAGED METRICS:');
+    console.log(`  Macro Precision        : ${(macroPrecision * 100).toFixed(1)}%`);
+    console.log(`  Macro Recall (Bal Acc) : ${(macroRecall * 100).toFixed(1)}%`);
+    console.log(`  Macro F1 Score         : ${(macroF1 * 100).toFixed(1)}%`);
+    console.log(`  Overall Accuracy       : ${(overallAccuracy * 100).toFixed(1)}% (50/68)`);
     console.log('------------------------------------------------------------------------');
     console.log('LATENCY PROFILE:');
     console.log(
@@ -265,9 +306,21 @@ describe('Phase 2A: Independent Holdout Evaluation', () => {
     // Verify evaluation executed across all holdout samples
     expect(corpus.length).toBe(68);
     expect(totalTP + totalTN + totalFP + totalFN).toBe(68);
-    // Precision remains high (>= 90%)
-    expect(overallPrecision).toBeGreaterThanOrEqual(0.9);
-    // Recall on independent holdout demonstrates honest uncalibrated baseline (~46.9%)
-    expect(overallRecall).toBeGreaterThan(0.4);
+
+    // Exact class-specific metric assertions
+    expect(attackPrecision).toBeCloseTo(0.938, 2);
+    expect(attackRecall).toBeCloseTo(0.469, 2);
+    expect(attackF1).toBeCloseTo(0.625, 2);
+    expect(benignPrecision).toBeCloseTo(0.673, 2);
+    expect(benignRecall).toBeCloseTo(0.972, 2);
+    expect(benignF1).toBeCloseTo(0.795, 2);
+
+    // Exact macro-averaged metric assertions
+    expect(macroPrecision).toBeCloseTo(0.805, 2);
+    expect(macroRecall).toBeCloseTo(0.72, 2);
+    expect(macroF1).toBeCloseTo(0.71, 2);
+
+    // Exact overall accuracy assertion
+    expect(overallAccuracy).toBeCloseTo(0.735, 2);
   });
 });

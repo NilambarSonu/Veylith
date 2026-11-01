@@ -50,8 +50,7 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
     : 'mock';
 
   const allowUnverifiedPricing =
-    overrides?.allowUnverifiedPricing ??
-    process.env['META_ALLOW_UNVERIFIED_PRICING'] === 'true';
+    overrides?.allowUnverifiedPricing ?? process.env['META_ALLOW_UNVERIFIED_PRICING'] === 'true';
 
   let endpoint: string;
   if (overrides?.endpoint && overrides.endpoint.trim().length > 0) {
@@ -88,8 +87,7 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
   }
 
   const apiBaseUrl =
-    overrides?.apiBaseUrl ??
-    (endpoint.endsWith('/responses') ? endpoint.slice(0, -10) : endpoint);
+    overrides?.apiBaseUrl ?? (endpoint.endsWith('/responses') ? endpoint.slice(0, -10) : endpoint);
 
   const apiKey = resolveProviderApiKey(provider, overrides?.apiKey);
   const model = overrides?.model ?? process.env['META_MODEL'] ?? def.defaultModel;

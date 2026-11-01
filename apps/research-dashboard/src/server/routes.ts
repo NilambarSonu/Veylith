@@ -105,7 +105,8 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
             phase2fArchiveCommit: '8cdd2a647acf2f31b6ca766e83f7531e68ce2046',
             phase3DashboardCommit: '0650d233337de0200f22bcd21ada28d08923afac',
             manifestSha256: '2270b7052e864a84ec28f38fbd15eeed1ccb50447e0ce934de0d508f2337d89c',
-            workingTreeStatus: 'clean',
+            targetBranchSnapshot: 'dev/phase-4-live-test-plan',
+            workingTreeStatus: 'dev/phase-4-live-test-plan (recorded snapshot)',
           },
           metricsSummary: {
             principalScenarios: scenarios.length,
@@ -119,6 +120,10 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
             phase2fTestsPassed: 252,
             automatedTestsPassed: 296,
             automatedTestsTotal: 296,
+            workspaceTestsPassed: 400,
+            workspaceTestsTotal: 400,
+            workspaceTestFiles: 43,
+            lastVerifiedTestRun: '400 tests, 43 files (100% passing)',
             reliabilityProbesPassed: reliability.passedCount,
             reliabilityProbesTotal: reliability.totalCount,
             reliabilityProbesFailed: reliability.failedCount,
@@ -127,7 +132,7 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
           qualityGates: gates,
           badges: [
             { label: 'Evaluation Status', value: 'Mock & Deterministic Evaluated', type: 'info' },
-            { label: 'Phase 2F Test Suite', value: '252 / 252 Passed (100%)', type: 'success' },
+            { label: 'Workspace Tests', value: '400 / 400 Passed (100%)', type: 'success' },
             {
               label: 'Inherited Reliability',
               value: '13 / 15 Passed (2 Known Failures)',
@@ -199,6 +204,7 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
 
     if (pathname === '/api/evaluations') {
       try {
+        const phase2aValidation = loader.getPhase2aValidationData();
         const phase2fDev = loader.getPhase2fDevelopmentComparison();
         const phase2eHoldout = loader.getPhase2eHoldoutRuns();
 
@@ -206,11 +212,18 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
         res.end(
           JSON.stringify(
             {
+              phase2aValidation,
               phase2fDevelopment: {
                 datasetDescription:
-                  'Phase 2F Development Set (72 samples, 68 classified, 4 operational)',
+                  'Phase 2F Development Set (72 samples: 56 core + 16 generated G1)',
                 provenanceNotice:
                   'Evaluation performed on development variants after Phase 2F boundary remediation.',
+                totalRecords: 72,
+                scoredClassificationSamples: 68,
+                excludedOperationalRecords: 4,
+                excludedCaseIds: ['VEY-2E-G3-01', 'VEY-2E-G3-03', 'VEY-2E-G3-05', 'VEY-2E-G3-07'],
+                exclusionReason:
+                  'Operational-failure cases have predicted: null (with G3-03 marked unsupported) and are excluded from binary classification scoring.',
                 specialWarnings: [
                   {
                     title: 'Deterministic-Only Mode 100% False Positive Rate',
@@ -232,6 +245,19 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
                 datasetDescription: 'Phase 2E Frozen Holdout Benchmark (56 cases)',
                 provenanceNotice:
                   'Frozen prior to evaluation at commit 1086aef. Procedural holdout; not an independently blinded third-party benchmark.',
+                totalRecords: 56,
+                scoredClassificationSamples: 50,
+                excludedOperationalRecords: 6,
+                excludedCaseIds: [
+                  'VEY-2E-X3-04',
+                  'VEY-2E-X3-06',
+                  'VEY-2E-G3-02',
+                  'VEY-2E-G3-04',
+                  'VEY-2E-G3-06',
+                  'VEY-2E-G3-08',
+                ],
+                exclusionReason:
+                  'Operational-failure cases (testing timeouts, network drops, and payload truncation) have predicted: null (with X3-06 marked unsupported). Per scripts/security-lab/report.ts line 5, they are excluded from binary classification scoring to prevent network transport faults from distorting threat detection metrics.',
                 specialWarnings: [
                   {
                     title: 'Procedural Holdout Dataset Provenance',

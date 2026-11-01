@@ -5,7 +5,6 @@ import {
   validateProviderConfiguration,
   resolveProviderApiKey,
   sanitizeProviderError,
-  type ModelProvider,
 } from '../src/index.js';
 
 describe('AI Provider Compatibility (Meta, Fireworks, Baseten)', () => {
@@ -51,11 +50,7 @@ describe('AI Provider Compatibility (Meta, Fireworks, Baseten)', () => {
 
     it('permits approved endpoints and models for each provider', () => {
       expect(() => {
-        validateProviderConfiguration(
-          'meta',
-          'https://api.meta.ai/v1/responses',
-          'muse-spark-1.3',
-        );
+        validateProviderConfiguration('meta', 'https://api.meta.ai/v1/responses', 'muse-spark-1.3');
       }).not.toThrow();
 
       expect(() => {
@@ -161,11 +156,7 @@ describe('AI Provider Compatibility (Meta, Fireworks, Baseten)', () => {
 
     it('strictly forbids unapproved models for each provider', () => {
       expect(() => {
-        validateProviderConfiguration(
-          'meta',
-          'https://api.meta.ai/v1/responses',
-          'gpt-4o',
-        );
+        validateProviderConfiguration('meta', 'https://api.meta.ai/v1/responses', 'gpt-4o');
       }).toThrowError(/does not permit model 'gpt-4o'/);
 
       expect(() => {

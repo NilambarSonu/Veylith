@@ -5,7 +5,7 @@
 **Base Commit:** `98d43d4`  
 **Remediation Branch:** `dev/phase-3-final-safety-remediation`  
 **Execution Environment:** macOS, Node.js v20+, Isolated Offline Lab (Zero External Provider Calls)  
-**Safety Classification:** PASS — STRICT FAIL-CLOSED LIVE BOUNDARY VALIDATED  
+**Safety Classification:** PASS — STRICT FAIL-CLOSED LIVE BOUNDARY VALIDATED
 
 ---
 
@@ -21,7 +21,7 @@ This report documents the completion of the final security remediation phase for
    - `192.168.0.0/16` (RFC 1918 Private)
    - `169.254.0.0/16` (RFC 3927 Link-Local)
    - IPv6 Unique-Local (`fc00::/7`), Link-Local (`fe80::/10`), and Loopback (`::1`)
-   Evaluated at beginning, middle, and end addresses across dotted-decimal (`::ffff:172.16.0.1`), WHATWG-normalized hex (`::ffff:ac10:1`), bracketed/unbracketed, and upper/lowercase formats, while preserving the strict approved-endpoint allowlist invariant.
+     Evaluated at beginning, middle, and end addresses across dotted-decimal (`::ffff:172.16.0.1`), WHATWG-normalized hex (`::ffff:ac10:1`), bracketed/unbracketed, and upper/lowercase formats, while preserving the strict approved-endpoint allowlist invariant.
 3. **Actual Live-Runner Integration Verification:** Added a full subprocess orchestration test (`tests/integration/live-runner-orchestration.test.ts`) invoking `scripts/security-lab/live.ts` against a local mock server. Demonstrated that when Candidate 1 yields a valid classification but missing usage:
    - Candidate 1 observation is preserved in `results.json` and `REPORT.md`.
    - The candidate loop halts immediately (`runStatus: 'stopped_unknown_provider_usage'`, `stopReason: 'unknown_provider_usage'`).
@@ -69,6 +69,7 @@ In [`packages/meta-adapter/src/adapter.ts`](file:///Users/nilambarbehera/Documen
 Both `isChatCompletions` and Meta Responses API parsers in `MetaMuseSecurityAdapter` as well as the fetch interceptor in `scripts/security-lab/live.ts` call `extractValidatedUsage(rawJson['usage'])`.
 
 When usage is `null`:
+
 - The classification result is preserved (`action`, `threatCategory`, `confidence`, `evidence`).
 - `hasUnknownUsage: true` and `tokenUsage: undefined` are recorded on the inspection result.
 - `tracker.recordSuccessWithUnknownUsage(durationMs)` records that an unmetered call occurred.
@@ -106,6 +107,7 @@ The test suite in [`packages/meta-adapter/tests/strict-usage-validation.test.ts`
 ### 4.1 Byte-Level IP Extraction
 
 In [`packages/meta-adapter/src/providers.ts`](file:///Users/nilambarbehera/Documents/Projects/veylith/packages/meta-adapter/src/providers.ts), `extractIpv4Bytes(cleanHost)` extracts octets `[b0, b1, b2, b3]` by parsing:
+
 - Native dotted-decimal IPv4 (`127.0.0.1`, `172.16.0.1`).
 - Dotted-decimal IPv4-mapped IPv6 (`::ffff:127.0.0.1` or `0:0:0:0:0:ffff:127.0.0.1`).
 - WHATWG URL normalized hex chunks (`::ffff:7f00:1`, `::ffff:ac10:1`, `::ffff:aff:ffff`).
@@ -114,6 +116,7 @@ In [`packages/meta-adapter/src/providers.ts`](file:///Users/nilambarbehera/Docum
 ### 4.2 Comprehensive Subnet Boundary Enforcement
 
 `isLoopbackEndpoint` and `isPrivateNetworkEndpoint` evaluate the extracted bytes against complete subnet specifications:
+
 - **127.0.0.0/8:** Beginning `127.0.0.0`, middle `127.42.0.1`, end `127.255.255.255` (and hex `::ffff:7f00:0` to `::ffff:7fff:ffff`).
 - **10.0.0.0/8:** Beginning `10.0.0.0`, middle `10.128.0.1`, end `10.255.255.255` (and hex `::ffff:a00:0` to `::ffff:aff:ffff`).
 - **172.16.0.0/12:** Beginning `172.16.0.0`, middle `172.24.0.1`, end `172.31.255.255` (and hex `::ffff:ac10:0` to `::ffff:ac1f:ffff`). Public neighbors `172.15.255.255` and `172.32.0.0` correctly pass through the private filter without false matches.
@@ -132,6 +135,7 @@ Even for public, non-private endpoints, `validateProviderConfiguration()` strict
 ### 5.1 Test Architecture
 
 [`tests/integration/live-runner-orchestration.test.ts`](file:///Users/nilambarbehera/Documents/Projects/veylith/tests/integration/live-runner-orchestration.test.ts) runs a true integration test that exercises the full multi-tier pipeline:
+
 1. Spawns an in-process HTTP mock server on `127.0.0.1`.
 2. Generates a temporary isolated directory under `os.tmpdir()` containing:
    - A synthetic 2-candidate dataset (`SYNTHETIC-LIVE-01`, `SYNTHETIC-LIVE-02`).
@@ -154,35 +158,39 @@ Even for public, non-private endpoints, `validateProviderConfiguration()` strict
 
 ## 6. Preserved Invariants & Safety Controls
 
-| Invariant | Implementation Mechanism | Verification Result |
-| :--- | :--- | :--- |
-| **No Silent Live Inference** | CLI requires explicit `--allow-paid` and provider API key | Verified (exits code 1 without flag) |
-| **Fail-Closed Missing Usage** | Missing, malformed, negative, or fractional usage marks `hasUnknownUsage: true`, cost `null` | Verified (18 scenarios tested) |
-| **Halt Candidate Loop** | Runner halts immediately on first unknown usage | Verified (subsequent requests blocked) |
-| **Strict Subnet Rejection** | `extractIpv4Bytes` covers 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, loopback | Verified across beginning, middle, end |
-| **Strict Allowlist Invariant** | Endpoints must match provider `approvedEndpoints` | Verified (spoofs & traversals fail) |
-| **Offline Test Purity** | All unit and integration tests run offline | Verified (0 network calls to real providers) |
-| **Frozen Evidence Isolation** | Reserved candidates (`security-lab/v1/live-reserve.json`) remain untouched | Verified (`git diff` clean) |
+| Invariant                      | Implementation Mechanism                                                                      | Verification Result                          |
+| :----------------------------- | :-------------------------------------------------------------------------------------------- | :------------------------------------------- |
+| **No Silent Live Inference**   | CLI requires explicit `--allow-paid` and provider API key                                     | Verified (exits code 1 without flag)         |
+| **Fail-Closed Missing Usage**  | Missing, malformed, negative, or fractional usage marks `hasUnknownUsage: true`, cost `null`  | Verified (18 scenarios tested)               |
+| **Halt Candidate Loop**        | Runner halts immediately on first unknown usage                                               | Verified (subsequent requests blocked)       |
+| **Strict Subnet Rejection**    | `extractIpv4Bytes` covers 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, loopback | Verified across beginning, middle, end       |
+| **Strict Allowlist Invariant** | Endpoints must match provider `approvedEndpoints`                                             | Verified (spoofs & traversals fail)          |
+| **Offline Test Purity**        | All unit and integration tests run offline                                                    | Verified (0 network calls to real providers) |
+| **Frozen Evidence Isolation**  | Reserved candidates (`security-lab/v1/live-reserve.json`) remain untouched                    | Verified (`git diff` clean)                  |
 
 ---
 
 ## 7. Comprehensive Regression Verification Results
 
 ### 7.1 Package Build
+
 - **Command:** `pnpm run build`
 - **Result:** Success (Exit code 0). 8 workspace projects built cleanly in 2.2s.
 
 ### 7.2 Security Lab Evaluation Typecheck
+
 - **Command:** `pnpm security:eval:typecheck`
 - **Target:** `scripts/security-lab/tsconfig.json`
 - **Result:** Success (Exit code 0, 0 type errors).
 
 ### 7.3 Security Remediation Typecheck
+
 - **Command:** `pnpm security:remediation:typecheck`
 - **Target:** `scripts/security-remediation/tsconfig.json`
 - **Result:** Success (Exit code 0, 0 type errors).
 
 ### 7.4 Complete Workspace Test Suite
+
 - **Command:** `pnpm run test:all`
 - **Scope:** All 40 test files across `packages/`, `apps/`, and `tests/integration/`
 - **Result:**
@@ -192,6 +200,7 @@ Even for public, non-private endpoints, `validateProviderConfiguration()` strict
   - **Failures:** 0
 
 ### 7.5 Interactive Browser CDP Verification
+
 - **Command:** `pnpm --filter @veylith/research-dashboard run verify:browser`
 - **Scope:** 12-step headless Chrome DevTools Protocol automation
 - **Result:**

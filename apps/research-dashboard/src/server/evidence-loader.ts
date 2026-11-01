@@ -338,6 +338,107 @@ export class EvidenceLoader {
   }
 
   /**
+   * Load Phase 2A Fixed Internal Validation Fixture metrics (68 curated cases).
+   * Evaluated via tests/integration/holdout-evaluation.test.ts against tests/fixtures/holdout-corpus.json.
+   */
+  public getPhase2aValidationData() {
+    return {
+      datasetDescription: 'Phase 2A Fixed Internal Validation Fixture (68 Samples)',
+      provenanceNotice:
+        'Fixed internal validation fixture (tests/fixtures/holdout-corpus.json: 32 malicious, 36 benign). Distinct from Phase 1 corpus but in-repo and accessible during development; NOT an independently blinded external benchmark.',
+      fixturePath: 'tests/fixtures/holdout-corpus.json',
+      totalSamples: 68,
+      classificationSamples: 68,
+      groundTruth: {
+        malicious: 32,
+        benign: 36,
+      },
+      confusionMatrix: {
+        tp: 15,
+        tn: 35,
+        fp: 1,
+        fn: 17,
+        totalClassified: 68,
+      },
+      classSpecificMetrics: {
+        attackPrecision: 0.938,
+        attackRecall: 0.469,
+        attackF1: 0.625,
+        benignPrecision: 0.673,
+        benignRecall: 0.972,
+        benignF1: 0.795,
+      },
+      macroMetrics: {
+        macroPrecision: 0.805,
+        macroRecall: 0.72,
+        macroF1: 0.71,
+        overallAccuracy: 0.735,
+      },
+      stageBreakdown: [
+        {
+          stage: 'discovery',
+          name: 'Stage 1: Discovery (tools/list)',
+          tp: 2,
+          fp: 0,
+          tn: 12,
+          fn: 6,
+          precision: 1.0,
+          recall: 0.25,
+          f1: 0.4,
+          deterministicBlocks: 2,
+          tier3Calls: 18,
+        },
+        {
+          stage: 'call_arguments',
+          name: 'Stage 2: Call Arguments (tools/call)',
+          tp: 6,
+          fp: 1,
+          tn: 11,
+          fn: 6,
+          precision: 0.857,
+          recall: 0.5,
+          f1: 0.632,
+          deterministicBlocks: 6,
+          tier3Calls: 18,
+        },
+        {
+          stage: 'call_response',
+          name: 'Stage 3: Call Response (tools/call outputs)',
+          tp: 7,
+          fp: 0,
+          tn: 12,
+          fn: 5,
+          precision: 1.0,
+          recall: 0.583,
+          f1: 0.737,
+          deterministicBlocks: 4,
+          tier3Calls: 20,
+        },
+      ],
+      latency: {
+        meanMs: 0.61,
+        p50Ms: 0.16,
+        p95Ms: 1.23,
+        p99Ms: 20.55,
+      },
+      specialWarnings: [
+        {
+          title: 'Internal Validation Dataset — Not an External Blind Holdout',
+          level: 'info',
+          description:
+            'While disjoint from the initial Phase 1 corpus, this 68-sample dataset is committed to the repository (tests/fixtures/holdout-corpus.json) and was available during development.',
+        },
+        {
+          title: 'False Negative Profile on Obfuscated Vectors',
+          level: 'warning',
+          description:
+            'The 17 false negatives (46.9% attack recall) reveal boundary limitations against complex multilingual injections (Spanish, Russian, Chinese, Arabic) and encoded payloads where static invariants did not trigger and mock semantic review fell back.',
+        },
+      ],
+    };
+  }
+
+  /**
    * Load inherited reliability probes (13 passed, 2 failed).
    */
   public getReliabilityProbes(): {

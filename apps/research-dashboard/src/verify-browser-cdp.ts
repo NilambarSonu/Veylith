@@ -250,7 +250,7 @@ async function runBrowserVerification(): Promise<void> {
       'document.getElementById("page-title")?.textContent || ""',
     );
     const hasTabsBar = await evaluate<boolean>(
-      'document.querySelectorAll(".tabs-bar button").length === 2',
+      'document.querySelectorAll(".tabs-bar button").length === 3',
     );
 
     if (labHash === '#evaluation-lab' && labTitle === 'Evaluation Lab' && hasTabsBar) {
@@ -258,7 +258,7 @@ async function runBrowserVerification(): Promise<void> {
         'Keyboard Navigation',
         'Press "2" Key',
         'PASS',
-        `Hash switched to "#evaluation-lab", Title="Evaluation Lab", 2 dataset tabs present`,
+        `Hash switched to "#evaluation-lab", Title="Evaluation Lab", 3 dataset tabs present`,
       );
     } else {
       recordInteraction(
@@ -271,6 +271,15 @@ async function runBrowserVerification(): Promise<void> {
 
     // ── Interaction 3: Mode buttons & Tabs in Evaluation Lab ───────────────
     console.log('[Execution] Testing Evaluation Lab tabs and mode buttons...');
+    // Click Phase 2A Internal Validation tab
+    await evaluate<void>('document.getElementById("tab-p2a")?.click()');
+    await new Promise((r) => setTimeout(r, 400));
+    const p2aActive = await evaluate<boolean>(
+      'document.getElementById("tab-p2a")?.classList.contains("active") || false',
+    );
+    const p2aText = await evaluate<string>('document.body.innerText');
+    const hasP2aMention = p2aText.includes('Phase 2A Fixed Internal Validation');
+
     // Click Phase 2E Frozen Holdout tab
     await evaluate<void>('document.getElementById("tab-p2e")?.click()');
     await new Promise((r) => setTimeout(r, 400));
@@ -280,19 +289,19 @@ async function runBrowserVerification(): Promise<void> {
     const p2eText = await evaluate<string>('document.body.innerText');
     const hasHoldoutMention = p2eText.includes('Phase 2E Frozen Holdout');
 
-    if (p2eActive && hasHoldoutMention) {
+    if (p2aActive && hasP2aMention && p2eActive && hasHoldoutMention) {
       recordInteraction(
         'Evaluation Lab',
-        'Switch to Phase 2E Holdout Tab',
+        'Switch to Phase 2A and Phase 2E Tabs',
         'PASS',
-        `Tab activated, holdout benchmark dataset rendered`,
+        `Tabs activated, Phase 2A validation fixture and Phase 2E holdout rendered`,
       );
     } else {
       recordInteraction(
         'Evaluation Lab',
-        'Switch to Phase 2E Holdout Tab',
+        'Switch to Phase 2A and Phase 2E Tabs',
         'FAIL',
-        `p2eActive=${p2eActive}, hasHoldoutMention=${hasHoldoutMention}`,
+        `p2aActive=${p2aActive}, hasP2aMention=${hasP2aMention}, p2eActive=${p2eActive}, hasHoldoutMention=${hasHoldoutMention}`,
       );
     }
 

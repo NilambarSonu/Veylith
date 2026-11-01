@@ -55,11 +55,26 @@ export function renderSecurityFindings(data: SecurityFindingsViewData): HTMLElem
         'Integrity Principle: Passing Automated Tests ≠ Complete Security',
       ]),
       el('div', { className: 'callout-desc' }, [
-        'Veylith explicitly separates verified unit/integration passes (252/252 tests) from holistic threat model coverage. These 8 findings represent known system limitations and security risks that require ongoing architectural work and live model evaluation.',
+        'Veylith explicitly separates verified unit/integration passes (400/400 tests across 43 files) from holistic threat model coverage. These 8 findings represent known system limitations and security risks that require ongoing architectural work and live model evaluation. Veylith is a research prototype, not a certified production appliance.',
       ]),
     ],
   );
   headerCard.appendChild(honestCallout);
+
+  // Live Testing Status Callout
+  const liveStatusCallout = el(
+    'div',
+    { className: 'callout info', style: 'margin-top: 12px; margin-bottom: 0;' },
+    [
+      el('div', { className: 'callout-title' }, [
+        'Live Meta API Testing Status: Single Compatibility Canary Only',
+      ]),
+      el('div', { className: 'callout-desc' }, [
+        'What was tested live: Exactly one real Meta Model API compatibility request in Phase 4B.1 (3,726.52 ms, 599 tokens, $0.00107 spend). This verified HTTP wire protocol, authentication, and cost gating. | What has NOT been tested live: The 6 reserved adversarial candidates remain untouched and unexecuted. The single canary request is NOT an adversarial security benchmark or model detection accuracy claim.',
+      ]),
+    ],
+  );
+  headerCard.appendChild(liveStatusCallout);
   container.appendChild(headerCard);
 
   // 2. Reserved Live Meta Muse Candidates (Locked Panel)
@@ -69,16 +84,18 @@ export function renderSecurityFindings(data: SecurityFindingsViewData): HTMLElem
   const lockedHeader = el('div', { className: 'locked-header' }, [
     el('div', { className: 'locked-title' }, [
       el('span', { style: 'font-size: 18px;' }, ['🔒']),
-      el('span', {}, ['Reserved Live Meta Muse Candidates (Unseen Test Set)']),
+      el('span', {}, ['Reserved Live Meta Muse Candidates (Unseen Test Set — 0 Executions)']),
     ]),
     el('span', { className: 'locked-badge' }, [reservedData.status]),
   ]);
 
   const lockedNotice = el('div', { className: 'callout info', style: 'margin-bottom: 16px;' }, [
-    el('div', { className: 'callout-title' }, ['Strict Founder Authorization Policy']),
+    el('div', { className: 'callout-title' }, [
+      'Strict Founder Authorization Policy & Zero Execution Guarantee',
+    ]),
     el('div', { className: 'callout-desc' }, [
       reservedData.instructions ||
-        'These 6 reserved cases are held back for manual founder-authorized live Meta Muse API validation. No automated or background live requests are executed by this research dashboard.',
+        'These 6 reserved cases are held back for manual founder-authorized live Meta Muse API validation. Zero automated or background live requests are executed by this research dashboard. Candidates remain untouched.',
     ]),
   ]);
 

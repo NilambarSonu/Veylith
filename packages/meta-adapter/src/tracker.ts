@@ -76,21 +76,15 @@ export class UsageTracker {
   private readonly cachedInputPriceUsd: number;
   private readonly outputTokenPriceUsd: number;
 
-  constructor(
-    maxRequestsOrOptions: number | UsageTrackerOptions = 10,
-    dailyBudgetUsd = 0.25,
-  ) {
+  constructor(maxRequestsOrOptions: number | UsageTrackerOptions = 10, dailyBudgetUsd = 0.25) {
     if (typeof maxRequestsOrOptions === 'object') {
       this.maxRequestsPerRun = maxRequestsOrOptions.maxRequestsPerRun ?? 10;
       this.dailyBudgetUsd = maxRequestsOrOptions.dailyBudgetUsd ?? 0.25;
       this.pricingVerified = maxRequestsOrOptions.pricingVerified ?? true;
       this.allowUnverifiedPricing = maxRequestsOrOptions.allowUnverifiedPricing ?? false;
-      this.standardInputPriceUsd =
-        maxRequestsOrOptions.standardInputPriceUsd ?? 0.00000125;
-      this.cachedInputPriceUsd =
-        maxRequestsOrOptions.cachedInputPriceUsd ?? 0.00000015;
-      this.outputTokenPriceUsd =
-        maxRequestsOrOptions.outputTokenPriceUsd ?? 0.00000425;
+      this.standardInputPriceUsd = maxRequestsOrOptions.standardInputPriceUsd ?? 0.00000125;
+      this.cachedInputPriceUsd = maxRequestsOrOptions.cachedInputPriceUsd ?? 0.00000015;
+      this.outputTokenPriceUsd = maxRequestsOrOptions.outputTokenPriceUsd ?? 0.00000425;
     } else {
       this.maxRequestsPerRun = maxRequestsOrOptions;
       this.dailyBudgetUsd = dailyBudgetUsd;

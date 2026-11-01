@@ -83,7 +83,9 @@ describe('MetaMuseSecurityAdapter', () => {
   });
 
   it('handles live mode failure with graceful fallback without throwing', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('fetch failed: connection refused'));
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(
+      new TypeError('fetch failed: connection refused'),
+    );
     const adapter = new MetaMuseSecurityAdapter({
       mode: 'live',
       apiKey: 'test-dummy-key',

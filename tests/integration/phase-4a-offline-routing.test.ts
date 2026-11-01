@@ -27,17 +27,15 @@ describe('Phase 4A.2: Offline Synthetic Routing Integration Test', () => {
     // 7. Network barrier: strictly forbid any external HTTP requests
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const urlStr =
-        typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.href
-            : input.url;
+        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       const parsed = new URL(urlStr);
       if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') {
         return originalFetch(input, init);
       }
       externalNetworkAttempted = true;
-      throw new Error(`SECURITY VIOLATION: External network call forbidden in offline test: ${urlStr}`);
+      throw new Error(
+        `SECURITY VIOLATION: External network call forbidden in offline test: ${urlStr}`,
+      );
     };
 
     // 8. Never access real provider credentials; force mock mode
@@ -92,7 +90,7 @@ describe('Phase 4A.2: Offline Synthetic Routing Integration Test', () => {
     endpoint = `http://127.0.0.1:${address.port}/mcp`;
 
     // 4 & 5. Mock Meta adapter response
-    gw.metaAdapter.inspect = async (content, stage, metadata) => {
+    gw.metaAdapter.inspect = async (content, stage, _metadata) => {
       adapterInvoked = true;
       interceptedContent = content;
       interceptedStage = stage;
