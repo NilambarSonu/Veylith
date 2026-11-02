@@ -1,0 +1,47 @@
+{
+  "name": "veylith",
+  "version": "0.1.0-alpha.1",
+  "description": "AI-agent security gateway for Model Context Protocol (MCP) clients and servers",
+  "author": "Nilambar Behera",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "veylith": "./bin/veylith.js",
+    "veylith-stdio": "./bin/veylith.js"
+  },
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "security",
+    "ai-agent",
+    "gateway",
+    "firewall",
+    "prompt-injection",
+    "anthropic",
+    "claude",
+    "cursor"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NilambarSonu/Veylith.git"
+  },
+  "homepage": "https://github.com/NilambarSonu/Veylith#readme",
+  "bugs": {
+    "url": "https://github.com/NilambarSonu/Veylith/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@modelcontextprotocol/server": "^2.4.0"
+  }
+}

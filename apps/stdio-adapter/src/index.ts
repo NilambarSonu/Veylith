@@ -15,28 +15,31 @@
  *   veylith-stdio --upstream-url http://127.0.0.1:8788/mcp
  */
 
+import { fileURLToPath } from 'node:url';
+import { realpathSync } from 'node:fs';
 import { VeylithStdioAdapter, type StdioAdapterConfig } from './adapter.js';
 import type { LogLevel } from './logger.js';
 
 function printHelp(): void {
   process.stderr.write(`
-Veylith Stdio Adapter — The AI Agent Security Boundary
+Veylith — AI Agent Security Boundary for Model Context Protocol (MCP)
 
 USAGE:
+  veylith [OPTIONS] [-- UPSTREAM_COMMAND [UPSTREAM_ARGS...]]
   veylith-stdio [OPTIONS] [-- UPSTREAM_COMMAND [UPSTREAM_ARGS...]]
 
 MODES:
-  1. Gateway Bridge (Default)
-     Bridges downstream stdio to an existing Veylith HTTP Gateway.
-     Example: veylith-stdio --gateway-url http://127.0.0.1:8787/mcp
+  1. Standalone Subprocess (Recommended)
+     Runs Veylith's 3-stage security boundary in-process and wraps an upstream tool command.
+     Example: veylith -- npx -y @modelcontextprotocol/server-filesystem /tmp
 
-  2. Standalone Subprocess
-     Runs the Veylith 3-stage security inspection in-process and wraps an upstream tool command.
-     Example: veylith-stdio -- npx -y @modelcontextprotocol/server-filesystem /tmp
+  2. Gateway Bridge
+     Bridges downstream stdio to a running Veylith HTTP Gateway instance.
+     Example: veylith --gateway-url http://127.0.0.1:8787/mcp
 
   3. Standalone HTTP
-     Runs the Veylith 3-stage security inspection in-process and wraps an upstream HTTP server.
-     Example: veylith-stdio --upstream-url http://127.0.0.1:8788/mcp
+     Runs Veylith in-process and mediates an upstream MCP HTTP server.
+     Example: veylith --upstream-url http://127.0.0.1:8788/mcp
 
 OPTIONS:
   --gateway-url <url>      URL of Veylith Gateway (default: http://127.0.0.1:8787/mcp)
@@ -155,8 +158,28 @@ async function main(): Promise<void> {
   }
 }
 
-// Only execute when invoked directly as a binary
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Only execute when invoked directly as a binary (handling symlinks, npx wrappers, bin wrappers, and direct invocations)
+function isEntrypoint(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    const currentPath = fileURLToPath(import.meta.url);
+    const invokedPath = realpathSync(process.argv[1]);
+    if (currentPath === invokedPath) return true;
+    if (
+      invokedPath.endsWith('/bin/veylith.js') ||
+      invokedPath.endsWith('/bin/veylith-stdio.js') ||
+      invokedPath.endsWith('\\bin\\veylith.js') ||
+      invokedPath.endsWith('\\bin\\veylith-stdio.js')
+    ) {
+      return true;
+    }
+    return false;
+  } catch {
+    return import.meta.url === `file://${process.argv[1]}`;
+  }
+}
+
+if (isEntrypoint()) {
   main().catch((err) => {
     process.stderr.write(
       `[veylith-stdio] Unhandled exception: ${err instanceof Error ? err.message : String(err)}\n`,

@@ -1,5 +1,5 @@
 {
-  "name": "veylith",
+  "name": "veylith-monorepo",
   "version": "0.1.0",
   "private": true,
   "description": "An AI-native security gateway for MCP agents, powered by Meta Muse",

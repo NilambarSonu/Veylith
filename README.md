@@ -4,10 +4,55 @@
 > An inline security gateway and policy enforcement control plane for Model Context Protocol (MCP) agents, powered by Meta Muse (`muse-spark-1.3`).
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/veylith.svg)](https://www.npmjs.com/package/veylith)
 [![MCP Protocol](https://img.shields.io/badge/MCP_Protocol-2026--07--28-green.svg)](https://modelcontextprotocol.io)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict_ESM-3178C6.svg)](https://www.typescriptlang.org/)
 [![Tests](https://img.shields.io/badge/Tests-408%20passing-brightgreen.svg)](<>)
 [![Track](https://img.shields.io/badge/Meta_Hackathon-Startup_Track-purple.svg)](<>)
+
+---
+
+## Quickstart
+
+Get started immediately with zero installation using `npx`:
+
+```bash
+# Wrap any MCP server command with Veylith
+npx veylith -- npx -y @modelcontextprotocol/server-filesystem /path/to/allowed/directory
+```
+
+Or install the CLI globally:
+
+```bash
+npm install -g veylith
+```
+
+### Configure Claude Desktop
+
+Add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "filesystem-protected": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "veylith",
+        "--",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/username/Desktop"
+      ]
+    }
+  }
+}
+```
+
+👉 **For complete Cursor setup, custom TypeScript agents, and step-by-step verification, see the [Developer Quickstart Guide](docs/integration/QUICKSTART.md).**
+
+---
 
 ---
 
@@ -464,6 +509,7 @@ veylith/
 ├── docs/
 │   ├── architecture/         # Architectural overviews and protocol specs
 │   ├── development/          # Local setup and client integration guides
+│   ├── integration/          # Client integration & Developer Quickstart guides
 │   └── security/             # Threat models, audit reports, runbooks, and test plans
 ├── examples/
 │   ├── benign-mcp-server/    # Harmless test MCP server for demo workflows
@@ -471,7 +517,8 @@ veylith/
 ├── packages/
 │   ├── core/                 # Shared data contracts, schemas, and policy types
 │   ├── meta-adapter/         # Meta Muse (muse-spark-1.3) adapter & usage tracker
-│   └── policy-engine/        # 3-tier rules, screener, router, and audit hash chain
+│   ├── policy-engine/        # 3-tier rules, screener, router, and audit hash chain
+│   └── veylith/              # Public standalone npm CLI package (veylith, veylith-stdio)
 ├── scripts/
 │   ├── demo.ts               # Interactive & deterministic CLI terminal demo (pnpm demo)
 │   ├── demo-real-client.ts   # Multi-process end-to-end client runner (pnpm demo:client)
