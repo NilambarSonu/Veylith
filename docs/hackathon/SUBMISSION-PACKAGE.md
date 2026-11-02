@@ -1,33 +1,52 @@
 # Veylith — Hackathon Submission Package
 
-**Meta Global AI Developer Hackathon 2026 (Startup Track)**
+**Meta Global AI Developer Hackathon 2026**  
+**Track:** Startup  
+**Theme:** Push the Frontier  
+**GitHub:** https://github.com/NilambarSonu/Veylith
 
 ---
 
 ## 1. Project Identification
 
-- **Project Name:** Veylith
-- **Concise Tagline:** The AI-Native Security Boundary for Model Context Protocol (MCP) Agents
+- **Project Name:** Veylith — AI Agent Security Gateway
+- **Track:** Startup
+- **Theme:** Push the Frontier
 - **Author / Presenter:** Nilambar Behera (Solo Founder)
-- **Repository:** `https://github.com/nilambar/veylith` (Local Workspace: `/Users/nilambarbehera/Documents/Projects/veylith`)
+- **Repository:** `https://github.com/NilambarSonu/Veylith` (Local Workspace: `/Users/nilambarbehera/Documents/Projects/veylith`)
 - **Primary Demonstration Command:** `pnpm demo -- --all`
 - **Interactive Research Dashboard:** `pnpm dashboard` (Runs locally at `http://127.0.0.1:8789`)
 
 ---
 
-## 2. Project Descriptions
+## 2. Executive Submission Brief
 
-### 50-Word Summary
+### One-Line Description
 
-Veylith is an AI-native security control plane for Model Context Protocol (MCP) agents. Positioned between agent runtimes and upstream tool servers, Veylith inspects tool schemas, call arguments, and tool outputs using hybrid deterministic invariants and Meta Muse semantic review to block prompt injections, destructive commands, and catalog poisoning fail-closed.
+Veylith is an AI-agent security gateway and research prototype that inspects MCP interactions, enforces tool-use policies, and provides auditable security decisions.
 
-### 150–200-Word Summary (177 Words)
+### Project Description
 
-Autonomous AI agents interacting with tools via Anthropic's Model Context Protocol (MCP) inherit dangerous ambient authority without transport-layer security inspection. Malicious upstream MCP servers can advertise prompt-injected tool descriptions, unvetted external data can hijack agent reasoning via indirect prompt injection, and hallucinated or compromised models can execute destructive shell or database actions without validation.
+AI agents increasingly interact with external tools and services through the Model Context Protocol (MCP), creating new risks from prompt injection, malicious tool descriptions, and unsafe tool execution.
 
-Veylith introduces the first inline security boundary for MCP. Sitting transparently between agent clients (like Claude Desktop or custom SDK agents) and MCP tool servers over both Streamable HTTP and stdio transports, Veylith enforces three inspection boundaries: Discovery Inspection drops poisoned tool schemas before the agent context window loads; Invocation Inspection intercepts destructive filesystem commands, SQL drops, and SSRF in under 0.05ms in-memory; and Response Inspection quarantines indirect prompt injections before untrusted outputs reach the model's reasoning loop.
+Veylith introduces a security boundary between AI agents and upstream MCP servers. Built in TypeScript, it combines deterministic policy enforcement, semantic-review infrastructure, and structured audit logging to inspect tool discovery, tool calls, and returned content. Its research dashboard provides evaluation comparisons, confusion matrices, latency measurements, and transparent security limitations.
 
-Powered by a three-tier architecture—Tier 1 deterministic invariants, Tier 2 heuristic screening, and Tier 3 Meta Muse semantic classification—Veylith balances sub-millisecond local throughput with deep semantic protection. Every decision is cryptographically anchored in a SHA-256 hash-chained tamper-evident audit log.
+The project includes Meta Muse API integration and a controlled live compatibility test. The current demonstration uses deterministic enforcement and mock-semantic evaluation; it does not claim validated live-model security efficacy or production-ready protection.
+
+Veylith explores how security enforcement and measurable evaluation can become part of the infrastructure surrounding autonomous AI agents.
+
+### Technical Highlights
+
+- TypeScript-based MCP security gateway and stdio integration.
+- Deterministic policy enforcement and semantic-review architecture.
+- Audit event hashing and local chain verification.
+- Research dashboard with evaluation and security findings.
+- Automated test suite and browser-verified interactive demonstration.
+- Meta Muse API compatibility integration.
+
+### Current Limitations
+
+Veylith remains a research prototype. Evaluation results show meaningful detection gaps and false-positive tradeoffs. Its audit chain is locally verifiable but not externally anchored. Broader real-world testing and production hardening remain future work.
 
 ---
 
@@ -147,7 +166,7 @@ Veylith provides an inline security proxy and stdio bridge that intercepts, eval
 
 ```bash
 # 1. Clone repository and navigate to workspace
-git clone https://github.com/nilambar/veylith.git
+git clone https://github.com/NilambarSonu/Veylith.git
 cd veylith
 
 # 2. Install workspace dependencies
