@@ -306,7 +306,14 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
       lower.includes('<![cdata[') ||
       lower.includes(']]>') ||
       lower.includes('role:') ||
-      lower.includes('assistant:');
+      lower.includes('assistant:') ||
+      lower.includes('<system>') ||
+      lower.includes('</system>') ||
+      lower.includes('<|im_start|>') ||
+      lower.includes('[inst] <<sys>>') ||
+      lower.includes('{{#system}}') ||
+      lower.includes('root@gateway:~#') ||
+      lower.includes('--- start assistant turn ---');
 
     // Heuristics to simulate realistic LLM classifier evaluation
     const isPoisoning =
@@ -318,11 +325,25 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
       lower.includes('you must disclose') ||
       lower.includes('send user api key') ||
       lower.includes('send to attacker') ||
-      lower.includes('exfiltrate');
+      lower.includes('exfiltrate') ||
+      lower.includes('ignora todas las instrucciones') ||
+      lower.includes('игнорируй все предыдущие') ||
+      lower.includes('忽略所有之前的') ||
+      lower.includes('veuillez ignorer toutes') ||
+      lower.includes('تجاهل جميع التعليمات') ||
+      lower.includes('disregard all prior') ||
+      lower.includes('critical system override') ||
+      lower.includes('rot13 payload') ||
+      lower.includes('1gn0r3 4ll') ||
+      lower.includes('base64: decode') ||
+      lower.includes('powershell invoke-webrequest') ||
+      lower.includes('silent instruction:');
 
     const isDestructive =
       lower.includes('rm -rf') ||
       lower.includes('drop table') ||
+      lower.includes('drop database') ||
+      lower.includes('truncate table') ||
       lower.includes('/etc/shadow') ||
       lower.includes('chmod 777') ||
       lower.includes(':(){ :|:& };:');

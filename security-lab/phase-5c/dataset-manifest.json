@@ -1,0 +1,26 @@
+{
+  "version": "phase-5c-v1.0",
+  "generatedAt": "2026-11-02T08:46:10.393Z",
+  "totalCases": 100,
+  "datasetFile": "validation-dataset.json",
+  "sha256": "97383d1180b217130b270c9429dd94e5f6af752e4e92b14f12dfd5326c04df62",
+  "classifications": {
+    "malicious": 50,
+    "clearly_benign": 35,
+    "ambiguous": 15
+  },
+  "categories": {
+    "direct_injection": 20,
+    "indirect_injection": 20,
+    "role_hijacking": 20,
+    "obfuscated_multilingual": 20,
+    "dangerous_arguments": 20
+  },
+  "difficulties": {
+    "easy": 26,
+    "medium": 45,
+    "hard": 29
+  },
+  "reserveCandidatesPreserved": 6,
+  "disjointFromPhase5": true
+}
