@@ -163,9 +163,9 @@ export function renderOverview(data: OverviewViewData): HTMLElement {
     el('div', { className: 'stat-card' }, [
       el('span', { className: 'stat-label' }, ['Workspace Tests (Recorded)']),
       el('span', { className: 'stat-value', style: 'color: var(--status-success);' }, [
-        `${ms.workspaceTestsPassed ?? 400} / ${ms.workspaceTestsTotal ?? 400}`,
+        `${ms.workspaceTestsPassed ?? 402} / ${ms.workspaceTestsTotal ?? 402}`,
       ]),
-      el('span', { className: 'stat-sub' }, ['Last verified run: 400 tests, 43 files']),
+      el('span', { className: 'stat-sub' }, ['Last verified run: 402 tests, 43 files']),
     ]),
   );
 
@@ -284,7 +284,7 @@ export function renderOverview(data: OverviewViewData): HTMLElement {
     </div>
     <div class="decision-card">
       <div class="decision-badge-title">
-        <span class="badge unknown" style="font-weight: 700; color: #ff9800; border-color: #ff9800;">[SANITIZE]</span>
+        <span class="badge sanitize" style="font-weight: 700;">[SANITIZE]</span>
         <strong style="font-size: 12px;">Indirect Injection Quarantine</strong>
       </div>
       <p style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
@@ -405,7 +405,7 @@ export function renderOverview(data: OverviewViewData): HTMLElement {
       </tr>
       <tr>
         <td>Verified Workspace Test Run</td>
-        <td class="code-cell">${data.metricsSummary.workspaceTestsPassed ?? 400} / ${data.metricsSummary.workspaceTestsTotal ?? 400} Passed (43 test files)</td>
+        <td class="code-cell">${data.metricsSummary.workspaceTestsPassed ?? 402} / ${data.metricsSummary.workspaceTestsTotal ?? 402} Passed (43 test files)</td>
         <td><span class="badge allow">Verified Snapshot</span></td>
       </tr>
       <tr>

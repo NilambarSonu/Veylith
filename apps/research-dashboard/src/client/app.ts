@@ -57,7 +57,7 @@ function updateNavigation(route: string): void {
     switch (route) {
       case 'overview':
         pageTitle.textContent = 'Project Overview';
-        breadcrumbs.textContent = 'Evidence Baseline • 14 Scenarios • 400 Workspace Tests Verified';
+        breadcrumbs.textContent = 'Evidence Baseline • 14 Scenarios • 402 Workspace Tests Verified';
         break;
       case 'evaluation-lab':
         pageTitle.textContent = 'Evaluation Lab';

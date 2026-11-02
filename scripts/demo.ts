@@ -87,9 +87,16 @@ export function buildSafeEnvironment(options: {
   serverPort: number;
   gatewayPort: number;
   logLevel?: string;
-}): NodeJS.ProcessEnv {
+}): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) {
+      env[key] = value;
+    }
+  }
+
   return {
-    ...process.env,
+    ...env,
     NODE_ENV: 'test',
     META_AI_MODE: 'mock',
     META_MODEL_API_KEY: '',

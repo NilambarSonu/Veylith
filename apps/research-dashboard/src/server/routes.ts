@@ -120,10 +120,10 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
             phase2fTestsPassed: 252,
             automatedTestsPassed: 296,
             automatedTestsTotal: 296,
-            workspaceTestsPassed: 400,
-            workspaceTestsTotal: 400,
+            workspaceTestsPassed: 402,
+            workspaceTestsTotal: 402,
             workspaceTestFiles: 43,
-            lastVerifiedTestRun: '400 tests, 43 files (100% passing)',
+            lastVerifiedTestRun: '402 tests, 43 files (100% passing)',
             reliabilityProbesPassed: reliability.passedCount,
             reliabilityProbesTotal: reliability.totalCount,
             reliabilityProbesFailed: reliability.failedCount,
@@ -132,7 +132,7 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
           qualityGates: gates,
           badges: [
             { label: 'Evaluation Status', value: 'Mock & Deterministic Evaluated', type: 'info' },
-            { label: 'Workspace Tests', value: '400 / 400 Passed (100%)', type: 'success' },
+            { label: 'Workspace Tests', value: '402 / 402 Passed (100%)', type: 'success' },
             {
               label: 'Inherited Reliability',
               value: '13 / 15 Passed (2 Known Failures)',
@@ -379,8 +379,8 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
       res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
       res.end(
         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-          <path d="M16 2L4 7v9c0 8 5.12 13.12 12 14 6.88-.88 12-6 12-14V7L16 2z" fill="#0D1424" stroke="#00BFFF" stroke-width="2"/>
-          <path d="M16 8l-6 6 1.41 1.41L16 10.83l4.59 4.58L22 14l-6-6z" fill="#00BFFF"/>
+          <path d="M16 2L4 7v9c0 8 5.12 13.12 12 14 6.88-.88 12-6 12-14V7L16 2z" fill="#0A1120" stroke="#38bdf8" stroke-width="2"/>
+          <path d="M16 8l-6 6 1.41 1.41L16 10.83l4.59 4.58L22 14l-6-6z" fill="#38bdf8"/>
         </svg>`,
       );
       return;

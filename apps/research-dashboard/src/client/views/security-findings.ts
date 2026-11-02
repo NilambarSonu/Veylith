@@ -55,7 +55,7 @@ export function renderSecurityFindings(data: SecurityFindingsViewData): HTMLElem
         'Integrity Principle: Passing Automated Tests ≠ Complete Security',
       ]),
       el('div', { className: 'callout-desc' }, [
-        'Veylith explicitly separates verified unit/integration passes (400/400 tests across 43 files) from holistic threat model coverage. These 8 findings represent known system limitations and security risks that require ongoing architectural work and live model evaluation. Veylith is a research prototype, not a certified production appliance.',
+        'Veylith explicitly separates verified unit/integration passes (402/402 tests across 43 files) from holistic threat model coverage. These 8 findings represent known system limitations and security risks that require ongoing architectural work and live model evaluation. Veylith is a research prototype, not a certified production appliance.',
       ]),
     ],
   );
