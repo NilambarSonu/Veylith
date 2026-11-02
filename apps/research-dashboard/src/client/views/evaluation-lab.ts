@@ -95,7 +95,71 @@ export interface Phase2aValidationViewData {
   specialWarnings: Array<{ title: string; level: string; description: string }>;
 }
 
+export interface Phase5dModeMetrics {
+  totalCases: number;
+  maliciousCases: number;
+  clearlyBenignCases: number;
+  ambiguousCases: number;
+  attacksBlocked: number;
+  attacksQuarantined?: number;
+  attacksMissed?: number;
+  attackRecall: number;
+  benignAllowed: number;
+  benignQuarantined?: number;
+  benignBlocked?: number;
+  clearlyBenignFPR: number;
+  benignSpecificity?: number;
+  ambiguousContained?: number;
+  ambiguousAllowed?: number;
+  ambiguousContainmentRate?: number;
+  confirmedAttackPrecision: number;
+  f1Score: number;
+  overallAccuracy: number;
+  apiErrorCount?: number;
+  p50LatencyMs: number;
+  p95LatencyMs?: number;
+  maxLatencyMs?: number;
+  categoryBreakdown?: Record<
+    string,
+    {
+      total: number;
+      attacksContained: number;
+      benignFalseBlocks: number;
+      ambiguousContained: number;
+      accuracy: number;
+    }
+  >;
+}
+
 export interface EvaluationLabData {
+  phase5dLive?: {
+    timestamp: string;
+    executionMode: string;
+    provider: string;
+    model: string;
+    endpoint: string;
+    dataset: {
+      path: string;
+      sha256: string;
+      totalCases: number;
+      maliciousCases: number;
+      clearlyBenignCases: number;
+      ambiguousCases: number;
+    };
+    budgetLedger: {
+      totalRequests: number;
+      totalTokens: number;
+      totalSpendUsd: number;
+      budgetLimitUsd: number;
+      budgetRemainingUsd: number;
+      budgetHalted: boolean;
+    };
+    metrics: {
+      modeA_deterministicOnly: Phase5dModeMetrics;
+      modeB_semanticOnly: Phase5dModeMetrics;
+      modeC_calibratedCombined: Phase5dModeMetrics;
+    };
+  } | null;
   phase2aValidation?: Phase2aValidationViewData;
   phase2fDevelopment: {
     datasetDescription: string;
@@ -125,21 +189,34 @@ export interface EvaluationLabData {
 export function renderEvaluationLab(data: EvaluationLabData): HTMLElement {
   const container = el('div', { className: 'view-container' });
 
-  // State: active tab ('phase2f-dev', 'phase2e-holdout', 'phase2a-val')
-  let currentSplit = 'phase2f-dev';
+  // State: active tab ('phase5d-live', 'phase2f-dev', 'phase2e-holdout', 'phase2a-val')
+  let currentSplit = data.phase5dLive ? 'phase5d-live' : 'phase2f-dev';
   let currentMode = 'mock-semantic';
+  let currentP5dMode = 'modeC_calibratedCombined';
 
   // Tabs Bar
   const tabsBar = el('div', { className: 'tabs-bar' });
-  const tabPhase2f = el('button', { className: 'tab-btn active', id: 'tab-p2f' }, [
-    'Phase 2F Development Comparison (72 Samples)',
-  ]);
-  const tabPhase2e = el('button', { className: 'tab-btn', id: 'tab-p2e' }, [
-    'Phase 2E Frozen Holdout Benchmark (56 Cases)',
-  ]);
-  const tabPhase2a = el('button', { className: 'tab-btn', id: 'tab-p2a' }, [
-    'Phase 2A Internal Validation Fixture (68 Samples)',
-  ]);
+  const tabPhase5d = el(
+    'button',
+    { className: `tab-btn ${currentSplit === 'phase5d-live' ? 'active' : ''}`, id: 'tab-p5d' },
+    ['Phase 5D Live Fireworks (100 Cases)'],
+  );
+  const tabPhase2f = el(
+    'button',
+    { className: `tab-btn ${currentSplit === 'phase2f-dev' ? 'active' : ''}`, id: 'tab-p2f' },
+    ['Phase 2F Development Comparison (72 Samples)'],
+  );
+  const tabPhase2e = el(
+    'button',
+    { className: `tab-btn ${currentSplit === 'phase2e-holdout' ? 'active' : ''}`, id: 'tab-p2e' },
+    ['Phase 2E Frozen Holdout Benchmark (56 Cases)'],
+  );
+  const tabPhase2a = el(
+    'button',
+    { className: `tab-btn ${currentSplit === 'phase2a-val' ? 'active' : ''}`, id: 'tab-p2a' },
+    ['Phase 2A Internal Validation Fixture (68 Samples)'],
+  );
+  tabsBar.appendChild(tabPhase5d);
   tabsBar.appendChild(tabPhase2f);
   tabsBar.appendChild(tabPhase2e);
   tabsBar.appendChild(tabPhase2a);
@@ -148,6 +225,269 @@ export function renderEvaluationLab(data: EvaluationLabData): HTMLElement {
   // Dynamic View Wrapper
   const contentWrapper = el('div', { className: 'view-container' });
   container.appendChild(contentWrapper);
+
+  function renderPhase5dLiveView() {
+    const p5d = data.phase5dLive;
+    if (!p5d) {
+      contentWrapper.appendChild(
+        el('div', { className: 'empty-state' }, [
+          el('p', { style: 'font-weight: 600;' }, ['Phase 5D live results not loaded']),
+        ]),
+      );
+      return;
+    }
+
+    // Header Panel with Mode Switcher
+    const headerPanel = el('div', { className: 'panel-card' });
+    const headerRow = el('div', {
+      style:
+        'display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;',
+    });
+
+    const titleGroup = el('div', {}, [
+      el('h2', { className: 'panel-title', style: 'font-size: 17px;' }, [
+        'Phase 5D Live Fireworks Model Evaluation (100 Cases)',
+      ]),
+      el('p', { className: 'stat-sub', style: 'margin-top: 4px;' }, [
+        `Provider: Fireworks AI • Model: ${p5d.model} • Benchmark SHA-256: 97383d11...`,
+      ]),
+    ]);
+
+    // Mode Switcher Pills (Mode C, Mode B, Mode A)
+    const pillGroup = el('div', { className: 'pill-group' });
+    const p5dModes = [
+      { id: 'modeC_calibratedCombined', label: 'Mode C: Calibrated Gateway' },
+      { id: 'modeB_semanticOnly', label: 'Mode B: Semantic-Only' },
+      { id: 'modeA_deterministicOnly', label: 'Mode A: Deterministic-Only' },
+    ];
+
+    for (const m of p5dModes) {
+      const btn = el(
+        'button',
+        {
+          className: `pill-btn ${currentP5dMode === m.id ? 'active' : ''}`,
+          'data-mode': m.id,
+        },
+        [m.label],
+      );
+      btn.addEventListener('click', () => {
+        currentP5dMode = m.id;
+        updateView();
+      });
+      pillGroup.appendChild(btn);
+    }
+
+    headerRow.appendChild(titleGroup);
+    headerRow.appendChild(pillGroup);
+    headerPanel.appendChild(headerRow);
+    contentWrapper.appendChild(headerPanel);
+
+    // Callout on Methodology
+    const provCallout = el('div', { className: 'callout info' }, [
+      el('div', { className: 'callout-title' }, [
+        'Empirical Evaluation on Frozen Synthetic Benchmark (100 Cases)',
+      ]),
+      el('div', { className: 'callout-desc' }, [
+        'Phase 5D evaluated real Fireworks API inference using ',
+        el('code', {}, [p5d.model]),
+        ' on the frozen validation dataset (50 malicious, 35 clearly benign, 15 ambiguous). This empirical validation tests model-in-the-loop security boundaries and cost accounting; it does NOT represent unconstrained production MCP traffic.',
+      ]),
+    ]);
+    contentWrapper.appendChild(provCallout);
+
+    // Budget & Cost Card
+    const budgetCard = el(
+      'div',
+      {
+        className: 'callout success',
+        style:
+          'display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; align-items: center;',
+      },
+      [
+        el('div', {}, [
+          el('strong', { style: 'color: var(--text-main); font-size: 13px;' }, [
+            'Fireworks Inference Budget Ledger: ',
+          ]),
+          el('span', { style: 'color: var(--text-muted); font-size: 12px;' }, [
+            `Total Spend: $${p5d.budgetLedger.totalSpendUsd.toFixed(4)} USD | Budget Limit: $${p5d.budgetLedger.budgetLimitUsd.toFixed(2)} | Billed Tokens: ${p5d.budgetLedger.totalTokens.toLocaleString()} | Live API Calls: ${p5d.budgetLedger.totalRequests}`,
+          ]),
+        ]),
+        el('span', { className: 'badge allow' }, ['Cost Cap Respected']),
+      ],
+    );
+    contentWrapper.appendChild(budgetCard);
+
+    // Active Mode Metrics
+    const activeMetrics: Phase5dModeMetrics | undefined = (
+      p5d.metrics as Record<string, Phase5dModeMetrics>
+    )[currentP5dMode];
+    if (!activeMetrics) return;
+
+    const statsGrid = el('div', {
+      className: 'stats-grid',
+      style: 'margin-top: 14px; margin-bottom: 14px;',
+    });
+    statsGrid.appendChild(
+      el('div', { className: 'stat-card' }, [
+        el('span', { className: 'stat-label' }, ['Malicious Attack Recall']),
+        el(
+          'span',
+          {
+            className: 'stat-value',
+            style: `color: ${activeMetrics.attackRecall >= 0.9 ? 'var(--status-success)' : activeMetrics.attackRecall >= 0.5 ? 'var(--status-warning)' : 'var(--status-error)'};`,
+          },
+          [formatPct(activeMetrics.attackRecall)],
+        ),
+        el('span', { className: 'stat-sub' }, [
+          `${activeMetrics.attacksBlocked} / ${activeMetrics.maliciousCases} attacks intercepted`,
+        ]),
+      ]),
+    );
+    statsGrid.appendChild(
+      el('div', { className: 'stat-card' }, [
+        el('span', { className: 'stat-label' }, ['Clearly-Benign False Positive Rate']),
+        el(
+          'span',
+          {
+            className: 'stat-value',
+            style: `color: ${activeMetrics.clearlyBenignFPR === 0 ? 'var(--status-success)' : 'var(--status-error)'};`,
+          },
+          [formatPct(activeMetrics.clearlyBenignFPR)],
+        ),
+        el('span', { className: 'stat-sub' }, [
+          `${activeMetrics.benignAllowed} / ${activeMetrics.clearlyBenignCases} benign allowed`,
+        ]),
+      ]),
+    );
+    statsGrid.appendChild(
+      el('div', { className: 'stat-card' }, [
+        el('span', { className: 'stat-label' }, ['Ambiguous Containment']),
+        el('span', { className: 'stat-value', style: 'color: var(--status-warning);' }, [
+          `${activeMetrics.ambiguousContained ?? 0} / ${activeMetrics.ambiguousCases}`,
+        ]),
+        el('span', { className: 'stat-sub' }, [
+          `${activeMetrics.ambiguousAllowed ?? 15} allowed, ${activeMetrics.ambiguousContained ?? 0} quarantined`,
+        ]),
+      ]),
+    );
+    statsGrid.appendChild(
+      el('div', { className: 'stat-card' }, [
+        el('span', { className: 'stat-label' }, ['Overall Accuracy']),
+        el('span', { className: 'stat-value', style: 'color: var(--accent-primary);' }, [
+          formatPct(activeMetrics.overallAccuracy),
+        ]),
+        el('span', { className: 'stat-sub' }, [`Across all ${activeMetrics.totalCases} cases`]),
+      ]),
+    );
+    statsGrid.appendChild(
+      el('div', { className: 'stat-card' }, [
+        el('span', { className: 'stat-label' }, ['P50 Latency']),
+        el('span', { className: 'stat-value', style: 'color: var(--accent-cyan);' }, [
+          formatLatency(activeMetrics.p50LatencyMs),
+        ]),
+        el('span', { className: 'stat-sub' }, [
+          activeMetrics.p95LatencyMs
+            ? `p95: ${formatLatency(activeMetrics.p95LatencyMs)}`
+            : 'In-memory fast path',
+        ]),
+      ]),
+    );
+    contentWrapper.appendChild(statsGrid);
+
+    // Confusion Matrix Card
+    const matrixCard = createConfusionMatrixCard({
+      tp: activeMetrics.attacksBlocked,
+      tn: activeMetrics.benignAllowed,
+      fp: activeMetrics.benignBlocked ?? 0,
+      fn:
+        activeMetrics.attacksMissed ?? activeMetrics.maliciousCases - activeMetrics.attacksBlocked,
+      precision: activeMetrics.confirmedAttackPrecision,
+      recall: activeMetrics.attackRecall,
+      fpr: activeMetrics.clearlyBenignFPR,
+      fnr: 1 - activeMetrics.attackRecall,
+      accuracy: activeMetrics.overallAccuracy,
+      totalClassified: activeMetrics.totalCases,
+    });
+
+    const barsCard = createMetricsComparisonSvg([
+      {
+        label: 'Attack Recall',
+        value: activeMetrics.attackRecall,
+        color: 'var(--status-warning)',
+      },
+      {
+        label: 'Benign Specificity',
+        value: activeMetrics.benignSpecificity ?? 1 - activeMetrics.clearlyBenignFPR,
+        color: 'var(--status-success)',
+      },
+      {
+        label: 'Overall Accuracy',
+        value: activeMetrics.overallAccuracy,
+        color: 'var(--accent-primary)',
+      },
+      { label: 'F1 Score', value: activeMetrics.f1Score, color: 'var(--accent-cyan)' },
+    ]);
+
+    const chartRow = el('div', {
+      style:
+        'display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px;',
+    });
+    chartRow.appendChild(matrixCard);
+    chartRow.appendChild(barsCard);
+    contentWrapper.appendChild(chartRow);
+
+    // Category Breakdown Table
+    if (activeMetrics.categoryBreakdown) {
+      const catPanel = el('div', { className: 'panel-card', style: 'margin-top: 16px;' });
+      catPanel.appendChild(
+        el('div', { className: 'panel-header' }, [
+          el('h3', { className: 'panel-title' }, ['Category Breakdown (20 Cases per Category)']),
+          el('span', { className: 'stat-sub' }, ['10 Malicious • 7 Benign • 3 Ambiguous each']),
+        ]),
+      );
+
+      const catTableContainer = el('div', { className: 'data-table-container' });
+      const catTable = el('table', { className: 'data-table' });
+      const catNames: Record<string, string> = {
+        direct_injection: 'Direct Prompt Injection',
+        indirect_injection: 'Indirect Prompt Injection',
+        role_hijacking: 'Role Hijacking & Identity Shift',
+        obfuscated_multilingual: 'Obfuscated & Multilingual Vectors',
+        dangerous_arguments: 'Dangerous Tool Execution Arguments',
+      };
+
+      let rowsHtml = '';
+      for (const [catKey, catData] of Object.entries(activeMetrics.categoryBreakdown)) {
+        rowsHtml += `
+          <tr>
+            <td style="font-weight: 600;">${catNames[catKey] ?? catKey}</td>
+            <td style="font-family: var(--font-mono);">${catData.total}</td>
+            <td style="font-family: var(--font-mono); color: var(--status-success);">${catData.attacksContained} / 10</td>
+            <td style="font-family: var(--font-mono); color: ${catData.benignFalseBlocks === 0 ? 'var(--status-success)' : 'var(--status-error)'};">${catData.benignFalseBlocks} / 7</td>
+            <td style="font-family: var(--font-mono);">${catData.ambiguousContained} / 3</td>
+            <td style="font-family: var(--font-mono); font-weight: 600; color: var(--accent-cyan);">${formatPct(catData.accuracy)}</td>
+          </tr>
+        `;
+      }
+
+      catTable.innerHTML = `
+        <thead>
+          <tr>
+            <th>Attack Category</th>
+            <th>Total Cases</th>
+            <th>Attacks Blocked (Recall)</th>
+            <th>False Blocks (FPR)</th>
+            <th>Ambiguous Contained</th>
+            <th>Category Accuracy</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      `;
+      catTableContainer.appendChild(catTable);
+      catPanel.appendChild(catTableContainer);
+      contentWrapper.appendChild(catPanel);
+    }
+  }
 
   function renderPhase2aView() {
     const p2a = data.phase2aValidation ?? {
@@ -401,6 +741,11 @@ export function renderEvaluationLab(data: EvaluationLabData): HTMLElement {
 
   function updateView() {
     contentWrapper.innerHTML = '';
+
+    if (currentSplit === 'phase5d-live') {
+      renderPhase5dLiveView();
+      return;
+    }
 
     if (currentSplit === 'phase2a-val') {
       renderPhase2aView();
@@ -759,9 +1104,19 @@ export function renderEvaluationLab(data: EvaluationLabData): HTMLElement {
     }
   }
 
+  tabPhase5d.addEventListener('click', () => {
+    currentSplit = 'phase5d-live';
+    tabPhase5d.classList.add('active');
+    tabPhase2f.classList.remove('active');
+    tabPhase2e.classList.remove('active');
+    tabPhase2a.classList.remove('active');
+    updateView();
+  });
+
   tabPhase2f.addEventListener('click', () => {
     currentSplit = 'phase2f-dev';
     tabPhase2f.classList.add('active');
+    tabPhase5d.classList.remove('active');
     tabPhase2e.classList.remove('active');
     tabPhase2a.classList.remove('active');
     updateView();
@@ -770,6 +1125,7 @@ export function renderEvaluationLab(data: EvaluationLabData): HTMLElement {
   tabPhase2e.addEventListener('click', () => {
     currentSplit = 'phase2e-holdout';
     tabPhase2e.classList.add('active');
+    tabPhase5d.classList.remove('active');
     tabPhase2f.classList.remove('active');
     tabPhase2a.classList.remove('active');
     updateView();
@@ -778,6 +1134,7 @@ export function renderEvaluationLab(data: EvaluationLabData): HTMLElement {
   tabPhase2a.addEventListener('click', () => {
     currentSplit = 'phase2a-val';
     tabPhase2a.classList.add('active');
+    tabPhase5d.classList.remove('active');
     tabPhase2f.classList.remove('active');
     tabPhase2e.classList.remove('active');
     updateView();

@@ -451,20 +451,20 @@ export class SecurityInspectionEngine {
         },
       );
 
-      let finalAction: PolicyAction = modelResult.flagged
-        ? modelResult.action
-        : this.defaultDecision;
-      let finalExplanation = modelResult.explanation;
-
-      // Fail-closed risk-based fallback: High-risk unverified operations MUST NOT pass when AI provider fails
-      if (
-        modelResult.action === 'review' &&
-        screenVerdict.type === 'ambiguous' &&
-        screenVerdict.riskLevel === 'high'
-      ) {
-        finalAction = 'block';
-        finalExplanation = `High-risk tool discovery quarantined: Security classifier unavailable while metadata exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`;
-      }
+      const finalAction: PolicyAction =
+        modelResult.action === 'review'
+          ? screenVerdict.riskLevel === 'high'
+            ? 'block'
+            : 'review'
+          : modelResult.flagged
+            ? modelResult.action
+            : this.defaultDecision;
+      const finalExplanation =
+        modelResult.action === 'review'
+          ? screenVerdict.riskLevel === 'high'
+            ? `High-risk tool discovery quarantined: Security classifier unavailable while metadata exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`
+            : `Tool discovery marked for review: ${modelResult.explanation}`
+          : modelResult.explanation;
 
       const res: SecurityInspectionResult = {
         id: randomUUID(),
@@ -491,14 +491,14 @@ export class SecurityInspectionEngine {
               ? 'deterministic'
               : 'live',
         confidence: modelResult.confidence,
-        isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
+        isConfirmedViolation: modelResult.flagged && finalAction === 'block',
       };
 
       if (modelResult.action !== 'review') this.cache.set(cacheKey, res);
       results.push(res);
       this.recordAudit(res, 'tools/list', tool.name, { serverId, clientIdentity, sessionId });
 
-      if (finalAction === 'block' || (finalAction === 'review' && this.failClosed)) {
+      if (finalAction === 'block' || finalAction === 'review') {
         blockedTools.push({
           name: tool.name,
           reason: res.explanation,
@@ -697,18 +697,20 @@ export class SecurityInspectionEngine {
       },
     );
 
-    let finalAction: PolicyAction = modelResult.flagged ? modelResult.action : this.defaultDecision;
-    let finalExplanation = modelResult.explanation;
-
-    // Fail-closed risk-based fallback: High-risk unverified operations MUST NOT pass when AI provider fails
-    if (
-      modelResult.action === 'review' &&
-      screenVerdict.type === 'ambiguous' &&
-      screenVerdict.riskLevel === 'high'
-    ) {
-      finalAction = 'block';
-      finalExplanation = `High-risk arguments quarantined: Security classifier unavailable while arguments exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`;
-    }
+    const finalAction: PolicyAction =
+      modelResult.action === 'review'
+        ? screenVerdict.riskLevel === 'high'
+          ? 'block'
+          : 'review'
+        : modelResult.flagged
+          ? modelResult.action
+          : this.defaultDecision;
+    const finalExplanation =
+      modelResult.action === 'review'
+        ? screenVerdict.riskLevel === 'high'
+          ? `High-risk arguments quarantined: Security classifier unavailable while arguments exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`
+          : `Arguments marked for review: ${modelResult.explanation}`
+        : modelResult.explanation;
 
     const res: SecurityInspectionResult = {
       id: randomUUID(),
@@ -735,7 +737,7 @@ export class SecurityInspectionEngine {
             ? 'deterministic'
             : 'live',
       confidence: modelResult.confidence,
-      isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
+      isConfirmedViolation: modelResult.flagged && finalAction === 'block',
     };
 
     if (modelResult.action !== 'review') this.cache.set(cacheKey, res);
@@ -762,7 +764,7 @@ export class SecurityInspectionEngine {
       content.every((c) => c.type === 'text' && typeof c.text === 'string'),
     );
     this.recordAudit(result, 'tools/call', toolName, ctx);
-    const isRedacted = result.action === 'block' || (result.action === 'review' && this.failClosed);
+    const isRedacted = result.action === 'block' || result.action === 'review';
     return {
       result,
       isRedacted,
@@ -906,7 +908,7 @@ export class SecurityInspectionEngine {
         );
         results.push(review);
         this.recordAudit(review, 'resources/list', res.uri, ctx);
-        if (review.action === 'block' || (review.action === 'review' && this.failClosed)) {
+        if (review.action === 'block' || review.action === 'review') {
           blockedResources.push({
             uri: res.uri,
             name: res.name,
@@ -987,7 +989,7 @@ export class SecurityInspectionEngine {
         );
         results.push(review);
         this.recordAudit(review, 'resources/list', tpl.uriTemplate, ctx);
-        if (review.action === 'block' || (review.action === 'review' && this.failClosed)) {
+        if (review.action === 'block' || review.action === 'review') {
           continue;
         }
         cleanTemplates.push(tpl);
@@ -1172,7 +1174,7 @@ export class SecurityInspectionEngine {
       ),
     );
     this.recordAudit(result, 'resources/read', uri, ctx);
-    const isRedacted = result.action === 'block' || (result.action === 'review' && this.failClosed);
+    const isRedacted = result.action === 'block' || result.action === 'review';
     return {
       sanitizedItems: isRedacted
         ? items.map((item) =>
@@ -1315,7 +1317,7 @@ export class SecurityInspectionEngine {
         );
         results.push(review);
         this.recordAudit(review, 'prompts/list', prompt.name, ctx);
-        if (review.action === 'block' || (review.action === 'review' && this.failClosed)) {
+        if (review.action === 'block' || review.action === 'review') {
           blockedPrompts.push({
             name: prompt.name,
             reason: review.explanation,
@@ -1422,7 +1424,7 @@ export class SecurityInspectionEngine {
       messages.every((msg) => msg.content.type === 'text' && typeof msg.content.text === 'string'),
     );
     this.recordAudit(result, 'prompts/get', promptName, ctx);
-    const isRedacted = result.action === 'block' || (result.action === 'review' && this.failClosed);
+    const isRedacted = result.action === 'block' || result.action === 'review';
     return {
       sanitizedMessages: isRedacted
         ? messages.map((msg) => ({

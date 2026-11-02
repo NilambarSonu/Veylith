@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![MCP Protocol](https://img.shields.io/badge/MCP_Protocol-2026--07--28-green.svg)](https://modelcontextprotocol.io)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict_ESM-3178C6.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-402%20passing-brightgreen.svg)](<>)
+[![Tests](https://img.shields.io/badge/Tests-408%20passing-brightgreen.svg)](<>)
 [![Track](https://img.shields.io/badge/Meta_Hackathon-Startup_Track-purple.svg)](<>)
 
 ---
@@ -238,6 +238,34 @@ In Phase 4B.1, a single controlled live compatibility canary test was executed a
 
 > **Note on Canary Scope:** This single-request canary proved technical compatibility, provider usage extraction, and financial bounding under real network conditions. It was **not** a statistical security efficacy benchmark.
 
+### Phase 5D: Live Fireworks AI Security Evaluation on Frozen Synthetic Benchmark
+
+In Phase 5D, Veylith conducted a comprehensive live evaluation against **Fireworks AI** (`accounts/fireworks/models/muse-spark-open`) over standard HTTPS OpenAI-compatible chat completions using the independently frozen 100-case synthetic validation dataset [`security-lab/phase-5c/validation-dataset.json`](security-lab/phase-5c/validation-dataset.json) (SHA-256: `97383d1180b217130b270c9429dd94e5f6af752e4e92b14f12dfd5326c04df62`). This experiment evaluated real model inference against a frozen benchmark—not production MCP traffic or real-world deployment testing.
+
+| Evaluation Dimension                   | Phase 5B (Baseline)        | Phase 5C (Offline Calibration)           | Phase 5D (Live Validation — Real API)        |
+| :------------------------------------- | :------------------------- | :--------------------------------------- | :------------------------------------------- |
+| **Inference Source**                   | Real Fireworks Live API    | Offline Mock Simulation                  | **Real Fireworks Live API**                  |
+| **Cases Evaluated**                    | 100 (50 Mal / 50 Benign)   | 100 (50 Mal / 35 Ben / 15 Amb)           | **100 (50 Mal / 35 Ben / 15 Amb)**           |
+| **Policy Framework**                   | Binary (`ALLOW` / `BLOCK`) | Three-Outcome (`ALLOW`/`BLOCK`/`REVIEW`) | **Three-Outcome (`ALLOW`/`BLOCK`/`REVIEW`)** |
+| **Attack Detection Recall**            | 98.0% (49/50)              | 58.0% (29/50)                            | **100.0% (50/50 attacks blocked)**           |
+| **Clearly-Benign False Positive Rate** | 48.0% (24/50)              | 0.0% (0/35)                              | **0.0% (0/35 false blocks)**                 |
+| **Ambiguous Case Containment**         | N/A (undifferentiated)     | 13.3% (2/15)                             | **0.0% (0/15 contained, 15 allowed)**        |
+| **Confirmed Attack Precision**         | 67.1%                      | 93.5%                                    | **100.0% (50 TP / 50 total blocks)**         |
+| **F1 Score**                           | 79.7%                      | 71.6%                                    | **100.0%**                                   |
+| **Overall Dataset Accuracy**           | 75.0%                      | 79.0%                                    | **85.0% (85/100 matching ground truth)**     |
+| **Actual Provider Spend**              | \$0.212368 USD             | \$0.046218 USD _(simulated)_             | **\$0.169359 USD _(actual billed)_**         |
+| **Billed Tokens**                      | 108,124 tokens             | 22,819 tokens _(simulated)_              | **82,312 tokens**                            |
+| **Latency (p50 / p95)**                | 2,969.2 ms / 7,204.1 ms    | 0.1 ms / 0.2 ms                          | **7,377.1 ms / 14,154.4 ms**                 |
+
+#### Key Empirical Insights from Phase 5D
+
+1. **Elimination of Benign False Positives**: In Phase 5B, 24 false positives occurred due to un-paced edge 503 drops collapsing into blocks, untyped tool arguments over-escalating to high risk, and session contamination. In Phase 5D, 2,500ms request pacing, capability schema bindings, per-case session isolation, and preserving three-outcome review states reduced clearly-benign false positives to **0 / 35 (0.0% FPR)** while maintaining **100.0% attack recall (50/50)**.
+2. **Ambiguous Cases and Prompt Contract Audit**: All 15 borderline cases (quoting injection strings in research papers, documentation guides, or customer logs) were evaluated by `muse-spark-open`. The model recognized the educational context and returned `action: 'allow'`, resulting in 0/15 ambiguous containment. Analysis revealed that the classification prompt lacked explicit instructions on when to return `review` for non-exploitative quotations, and gateway discovery/argument methods previously collapsed unflagged review outcomes to allow. Both prompt invariants and policy engine routing were hardened and verified via offline tests.
+3. **Latency and Hybrid Necessity**: Deep reasoning in `muse-spark-open` requires ~7.4s (p50) due to explicit chain-of-thought generation. This demonstrates why Veylith's hybrid architecture—offloading known invariants and read-only operations to $<0.05\text{ ms}$ deterministic fast-paths—is essential for practical MCP agent responsiveness.
+4. **Budget & Accounting Compliance**: Exactly 91 live requests were dispatched (9 cases short-circuited deterministically in $<1\text{ ms}$), consuming 82,312 tokens for \$0.169359 USD (strictly within the \$2.00 hard budget cap with \$1.830641 USD remaining).
+5. **Sealed Reserves**: All 6 reserved live adversarial candidates ([`security-lab/v1/live-reserve.json`](security-lab/v1/live-reserve.json) SHA-256 `e4f918504d7a54bf89a4f599fe6c6a2ef7de9a42c86909613c80de5f826ee276`) remain completely untouched and unexecuted.
+6. **Artifacts**: Complete raw JSON evidence and report are persisted at [`security-lab/phase-5d/evaluation-results.json`](security-lab/phase-5d/evaluation-results.json) and [`security-lab/phase-5d/REPORT.md`](security-lab/phase-5d/REPORT.md).
+
 ---
 
 ## 9. Security Evaluation Methodology & Limitations
@@ -367,7 +395,7 @@ _Inspect the evaluation matrix, view the tamper-evident audit log chain, and rev
 ### 4. Run Automated Test Suites
 
 ```bash
-# Run all 402 automated tests across 43 test files
+# Run all 408 automated tests across 43 test files
 pnpm test:all
 
 # Run strict TypeScript typecheck across all 8 workspace packages
@@ -471,7 +499,7 @@ pnpm test:all
 **Latest Verified Test Results:**
 
 - **43 test files passed (100%)**
-- **402 tests passed (100%)**
+- **408 tests passed (100%)**
 - **0 test failures**
 - Strict ESM TypeScript typechecking passing across all 8 workspace projects (`pnpm typecheck`).
 - Clean build across all packages (`pnpm build`).

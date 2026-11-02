@@ -165,8 +165,8 @@ describe('Veylith Research Dashboard — Local HTTP Server & Read-Only API', () 
     expect(json.metricsSummary!.frozenHoldoutCount).toBe(56);
     expect(json.metricsSummary!.reservedLiveCandidates).toBe(6);
     expect(json.metricsSummary!.automatedTestsPassed).toBe(296);
-    expect(json.metricsSummary!.workspaceTestsPassed).toBe(402);
-    expect(json.metricsSummary!.workspaceTestsTotal).toBe(402);
+    expect(json.metricsSummary!.workspaceTestsPassed).toBe(408);
+    expect(json.metricsSummary!.workspaceTestsTotal).toBe(408);
     expect(json.metricsSummary!.phase2fTestsPassed).toBe(252);
     expect(json.metricsSummary!.reliabilityProbesPassed).toBe(13);
     expect(json.metricsSummary!.reliabilityProbesFailed).toBe(2);

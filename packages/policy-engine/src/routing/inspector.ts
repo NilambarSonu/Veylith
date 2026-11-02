@@ -126,7 +126,7 @@ export class BoundaryInspector {
       if (
         !ModelClassificationSchema.safeParse(result).success ||
         result.mode !== this.adapter.mode ||
-        (!result.flagged && result.action !== 'allow') ||
+        (!result.flagged && result.action === 'block') ||
         (result.flagged && result.action === 'allow')
       )
         return unavailable('Malformed or contradictory semantic adapter output');
@@ -202,17 +202,18 @@ export class BoundaryInspector {
     const cached = this.cache.get(key);
     if (cached) {
       this.cacheHit();
-      if (cached.action === 'allow' || (cached.action === 'review' && !this.failClosed))
-        this.router.remember(ctx, text);
+      if (cached.action === 'allow') this.router.remember(ctx, text);
       return { ...cached, routing: { ...r.routing, reason: 'scoped-semantic-cache-hit' } };
     }
     const model = await this.infer(r.payload, 'call_response', r.routing, ctx.requestId, {
       target,
       stage: ctx.stage,
     });
-    const action =
-      model.action === 'review' && (this.failClosed || r.riskLevel === 'high')
-        ? 'block'
+    const action: PolicyAction =
+      model.action === 'review'
+        ? r.riskLevel === 'high'
+          ? 'block'
+          : 'review'
         : model.flagged
           ? model.action
           : this.defaultDecision;
@@ -221,21 +222,25 @@ export class BoundaryInspector {
       routing: this.effectiveRoute(r.routing, model),
       action,
       origin: model.mode === 'disabled' ? 'deterministic' : model.mode,
-      threatCategory: action === 'block' ? category : model.threatCategory,
+      threatCategory:
+        action === 'block' && model.threatCategory === 'none'
+          ? r.riskLevel === 'high'
+            ? category
+            : 'none'
+          : model.threatCategory,
       explanation:
         model.action === 'review'
           ? `Unverified content quarantined or marked for review: ${model.explanation}`
           : model.explanation,
       evidence: [],
-      isConfirmedViolation: model.flagged && model.action === 'block',
+      isConfirmedViolation: model.flagged && action === 'block',
       modelId: model.mode === 'disabled' ? undefined : this.adapter.model,
       tokenUsage: model.tokenUsage,
       confidence: model.confidence,
       evaluationDurationMs: performance.now() - start,
     };
     if (model.action !== 'review') this.cache.set(key, result);
-    if (result.action === 'allow' || (result.action === 'review' && !this.failClosed))
-      this.router.remember(ctx, text);
+    if (result.action === 'allow') this.router.remember(ctx, text);
     return result;
   }
 }

@@ -274,6 +274,28 @@ describe('Gateway forwarding and policy enforcement across all inspection stages
     expect(texts.some((t) => t.includes('SYSTEM INSTRUCTION'))).toBe(false);
     await client.close();
   });
+
+  it('quarantines ambiguous tool response under review without exposing content to agent', async () => {
+    const client = new Client({ name: 'test-gw-review', version: '0.1.0' });
+    const transport = new StreamableHTTPClientTransport(new URL(GATEWAY_URL));
+    await client.connect(transport);
+
+    // Call simulate_untrusted_source with ambiguous research excerpt quoting attack strings
+    const result = await client.callTool({
+      name: 'simulate_untrusted_source',
+      arguments: { sourceId: 'ambiguous_doc' },
+    });
+
+    expect(result.isError).toBe(true);
+    const texts = (result.content as Array<{ type: string; text: string }>)
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text);
+    // Invariant: Untrusted response under review must be quarantined and never delivered unredacted
+    expect(texts.some((t) => t.includes('[Veylith Security Notice]'))).toBe(true);
+    expect(texts.some((t) => t.includes('quarantined'))).toBe(true);
+    expect(texts.some((t) => t.includes('Security Research Paper excerpt'))).toBe(false);
+    await client.close();
+  });
 });
 
 describe('Malformed payload and HTTP error handling', () => {

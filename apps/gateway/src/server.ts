@@ -356,15 +356,12 @@ export const handler = createMcpHandler(
                   (args as Record<string, unknown>) ?? {},
                   current,
                 );
-                if (
-                  freshInspection.action === 'block' ||
-                  (freshInspection.action === 'review' && config.failClosed)
-                ) {
+                if (freshInspection.action === 'block' || freshInspection.action === 'review') {
                   return {
                     content: [
                       {
                         type: 'text' as const,
-                        text: `Veylith policy blocked this call: ${freshInspection.explanation}`,
+                        text: `Veylith policy ${freshInspection.action === 'review' ? 'quarantined' : 'blocked'} this call: ${freshInspection.explanation}`,
                       },
                     ],
                     isError: true,

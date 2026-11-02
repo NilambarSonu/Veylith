@@ -250,7 +250,7 @@ async function runBrowserVerification(): Promise<void> {
       'document.getElementById("page-title")?.textContent || ""',
     );
     const hasTabsBar = await evaluate<boolean>(
-      'document.querySelectorAll(".tabs-bar button").length === 3',
+      'document.querySelectorAll(".tabs-bar button").length >= 3',
     );
 
     if (labHash === '#evaluation-lab' && labTitle === 'Evaluation Lab' && hasTabsBar) {
@@ -258,7 +258,7 @@ async function runBrowserVerification(): Promise<void> {
         'Keyboard Navigation',
         'Press "2" Key',
         'PASS',
-        `Hash switched to "#evaluation-lab", Title="Evaluation Lab", 3 dataset tabs present`,
+        `Hash switched to "#evaluation-lab", Title="Evaluation Lab", evaluation dataset tabs present`,
       );
     } else {
       recordInteraction(

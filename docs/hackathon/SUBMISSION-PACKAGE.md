@@ -29,24 +29,24 @@ Veylith is an AI-agent security gateway and research prototype that inspects MCP
 
 AI agents increasingly interact with external tools and services through the Model Context Protocol (MCP), creating new risks from prompt injection, malicious tool descriptions, and unsafe tool execution.
 
-Veylith introduces a security boundary between AI agents and upstream MCP servers. Built in TypeScript, it combines deterministic policy enforcement, semantic-review infrastructure, and structured audit logging to inspect tool discovery, tool calls, and returned content. Its research dashboard provides evaluation comparisons, confusion matrices, latency measurements, and transparent security limitations.
+Veylith introduces a security boundary between AI agents and upstream MCP servers. Built in TypeScript, it combines deterministic policy enforcement, three-outcome semantic governance (`ALLOW`, `BLOCK`, `REVIEW`), and structured audit logging to inspect tool discovery, tool calls, and returned content. Its research dashboard provides evaluation comparisons, confusion matrices, latency measurements, and transparent security limitations.
 
-The project includes Meta Muse API integration and a controlled live compatibility test. The current demonstration uses deterministic enforcement and mock-semantic evaluation; it does not claim validated live-model security efficacy or production-ready protection.
+The project includes multi-provider compatibility supporting the Meta Model API and Fireworks AI (`accounts/fireworks/models/muse-spark-open`). In Phase 5D live validation, Veylith was evaluated against 100 independently frozen cases with real Fireworks model inference, demonstrating **100.0% attack recall (50/50)** and **0.0% clearly-benign false positive rate (0/35)** under strict rate pacing and three-tier routing.
 
 Veylith explores how security enforcement and measurable evaluation can become part of the infrastructure surrounding autonomous AI agents.
 
 ### Technical Highlights
 
 - TypeScript-based MCP security gateway and stdio integration.
-- Deterministic policy enforcement and semantic-review architecture.
-- Audit event hashing and local chain verification.
-- Research dashboard with evaluation and security findings.
-- Automated test suite and browser-verified interactive demonstration.
-- Meta Muse API compatibility integration.
+- Three-tier hybrid architecture: sub-0.05ms deterministic invariants paired with semantic LLM intelligence.
+- Tamper-evident cryptographic audit hash chain (SHA-256 sequential state linking).
+- Real live API inference evaluation with Fireworks AI `muse-spark-open` on frozen synthetic benchmark (100 cases, 100% attack recall, 0.0% clearly-benign FPR, 85.0% benchmark accuracy).
+- Research dashboard with evaluation matrices, latency telemetry, and security findings.
+- Automated test suite (408 tests, 100% passing across 43 files) and browser-verified interactive demonstration.
 
 ### Current Limitations
 
-Veylith remains a research prototype. Evaluation results show meaningful detection gaps and false-positive tradeoffs. Its audit chain is locally verifiable but not externally anchored. Broader real-world testing and production hardening remain future work.
+Veylith remains an engineering research prototype, not a production-certified security appliance. While empirical validation confirms major precision/recall gains, prompt injection remains an adaptive open problem. Its audit chain is locally verified rather than externally anchored to a public notary, and deep reasoning model inference introduces latency overhead (~7.4s p50) that requires fast-path deterministic bypasses for non-sensitive operations.
 
 ---
 
@@ -179,7 +179,7 @@ pnpm build
 pnpm typecheck
 pnpm security:eval:typecheck
 
-# 5. Execute full workspace test suite (402 tests, 43 files)
+# 5. Execute full workspace test suite (408 tests, 43 files)
 pnpm test:all
 
 # 6. Launch Research Dashboard (local loopback, read-only)
@@ -233,12 +233,27 @@ Veylith avoids marketing claims of "100% prompt injection detection" by providin
 | **Overall Accuracy**        | **73.5%** (50/68 samples)              | **78.0%** (Deterministic) / **80.0%** (Mock)     | **70.6%** (Deterministic) / **66.2%** (Mock)             |
 | **Provenance Nature**       | In-repo validation fixture (not blind) | Procedurally frozen benchmark (commit `1086aef`) | Post-remediation development variants                    |
 
+### Phase 5D Live Fireworks AI Security Evaluation on Frozen Synthetic Benchmark
+
+In Phase 5D, Veylith completed a live inference evaluation using **Fireworks AI** (`accounts/fireworks/models/muse-spark-open`) over standard HTTPS chat completions on the frozen 100-case synthetic validation dataset [`security-lab/phase-5c/validation-dataset.json`](file:///Users/nilambarbehera/Documents/Projects/veylith/security-lab/phase-5c/validation-dataset.json) (SHA-256: `97383d1180b217130b270c9429dd94e5f6af752e4e92b14f12dfd5326c04df62`): This represents live model evaluation against a controlled synthetic benchmark—not production MCP traffic or real-world deployment testing.
+
+- **Inference Mode**: 100% Real Live Model Inference (91 live API requests, 9 deterministic fast-path short-circuits).
+- **Attack Recall**: **100.0% (50/50)** malicious injections intercepted or contained.
+- **Clearly-Benign False Positive Rate**: **0.0% (0/35)** false blocks on legitimate developer workflows.
+- **Ambiguous Borderline Handling**: 15 borderline educational/quoted attack cases evaluated; live model recognized non-exploitative context and returned `ALLOW` (15/15 allowed, 0/15 contained under Phase 5D prompt). Analysis subsequently resolved prompt invariants and engine routing to properly enforce three-outcome quarantine policies (`ALLOW` / `BLOCK` / `REVIEW`).
+- **Confirmed Attack Precision**: **100.0%** (50 true positive blocks / 50 total blocks in Mode C).
+- **F1 Score**: **100.0%**.
+- **Overall Benchmark Accuracy**: **85.0%** (85/100 matching expected ground truth).
+- **Actual Provider Spend**: **$0.169359 USD** for 82,312 billed tokens (**$1.830641 USD** budget remaining from $2.00 hard cap; zero budget overruns).
+- **Inference Latency**: p50 = 7,377.1 ms, p95 = 14,154.4 ms (demonstrating why hybrid Tier 1/2 fast paths at <0.05ms are essential for real-time operations).
+- **Sealed Reserves**: All 6 reserved adversarial candidates (`security-lab/v1/live-reserve.json`) remain sealed and unexecuted.
+
 ### Full Workspace Test Suite
 
 - **Test Files:** 43 passed (100%)
-- **Tests Passed:** **402 passed (402)** (100%)
+- **Tests Passed:** **408 passed (408)** (100%)
 - **Test Failures:** 0 failures
-- **Execution Time:** ~27 seconds
+- **Execution Time:** ~20 seconds
 
 ---
 

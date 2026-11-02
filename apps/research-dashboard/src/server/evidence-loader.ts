@@ -439,6 +439,36 @@ export class EvidenceLoader {
   }
 
   /**
+   * Load Phase 5D live Fireworks evaluation results (100-case frozen benchmark).
+   */
+  public getPhase5dResults() {
+    const filePath = path.join(
+      this.config.projectRoot,
+      'security-lab',
+      'phase-5d',
+      'evaluation-results.json',
+    );
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+    try {
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      return {
+        timestamp: data.timestamp,
+        executionMode: data.executionMode,
+        provider: data.provider,
+        model: data.model,
+        endpoint: data.endpoint,
+        dataset: data.dataset,
+        budgetLedger: data.budgetLedger,
+        metrics: data.metrics,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Load inherited reliability probes (13 passed, 2 failed).
    */
   public getReliabilityProbes(): {
@@ -827,11 +857,21 @@ export class EvidenceLoader {
 
     // Sort
     const sortOrder = options.sortOrder ?? 'desc';
-    filtered.sort((a, b) =>
-      sortOrder === 'asc'
+    filtered.sort((a, b) => {
+      if (options.caseId) {
+        return sortOrder === 'asc'
+          ? a.sequenceNumber - b.sequenceNumber
+          : b.sequenceNumber - a.sequenceNumber;
+      }
+      // Across multiple cases: sort primarily by timestamp, then by sequence number
+      const timeDiff = new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      if (!Number.isNaN(timeDiff) && timeDiff !== 0) {
+        return sortOrder === 'asc' ? -timeDiff : timeDiff;
+      }
+      return sortOrder === 'asc'
         ? a.sequenceNumber - b.sequenceNumber
-        : b.sequenceNumber - a.sequenceNumber,
-    );
+        : b.sequenceNumber - a.sequenceNumber;
+    });
 
     // Pagination
     const page = Math.max(1, options.page ?? 1);
@@ -922,15 +962,16 @@ export class EvidenceLoader {
     return [
       {
         id: 'FINDING-01',
-        title: 'Real Muse Detection Quality Untested in Phase 2F',
+        title:
+          'Real Muse Detection Quality Untested in Production (Phase 5D Live Fireworks Evaluated)',
         severity: 'HIGH',
         category: 'Model Validation',
-        status: 'Open / Untested in Phase 2F',
+        status: 'Open / Pending Adversarial Validation',
         evidence:
-          'Phase 2F evaluations operated strictly in deterministic-only and mock-semantic modes (0 live inference calls, $0 cost). Real Meta Muse inference was only verified on 5 selected cases during Phase 2A. Mock semantic recall was 52.1% and mock results do NOT measure real model accuracy.',
+          'Phase 5D validated real Fireworks inference with muse-spark-open on a frozen 100-case synthetic validation benchmark (50/50 attack recall, 0/35 benign FPR, 15/15 ambiguous allowed, $0.169 spend, 7.38s p50 latency). However, broader live adversarial robustness on Meta Muse Spark 1.3 across open-ended production MCP traffic remains unverified, and all 6 reserved live candidates remain sealed offline pending founder authorization.',
         impact:
-          'High false-negative risk on real LLM deployment. The system cannot guarantee prompt-injection detection accuracy until real inference is evaluated on reserved cases.',
-        reference: 'docs/security/phase-2f/FINAL-REPORT.md §10',
+          'Risk of evasion under adaptive multi-turn jailbreaks or production tool traffic not represented in the synthetic benchmark.',
+        reference: 'security-lab/phase-5d/REPORT.md §1 & §6',
       },
       {
         id: 'FINDING-02',
@@ -1011,10 +1052,10 @@ export class EvidenceLoader {
         category: 'Operational / Cost',
         status: 'Known Trade-Off',
         evidence:
-          'In Phase 2F deterministic-only mode, blocking all unverified content caused a 100% false-positive rate (all 20 benign cases blocked). In mock-semantic mode, routing unknown payloads to inference increases latency from ~10ms to ~100ms+ and generates 593 model calls.',
+          'Phase 2F deterministic-only mode blocked all 20 benign cases (100% false-positive rate). Calibrated Mode C (Phase 5D) achieved 0% clearly-benign FPR on 35 cases, but live cloud model inference introduces ~7.38s p50 latency (vs <0.05ms deterministic invariants) and token costs ($0.169 / 100 cases).',
         impact:
-          'Aggressive security policies harm developer usability by blocking legitimate tools, while broad semantic review incurs inference costs and latency spikes.',
-        reference: 'security-lab/phase-2f/evidence/development-comparison.json',
+          'Aggressive deterministic policies compromise tool availability, while comprehensive semantic review introduces network latency and cloud inference costs.',
+        reference: 'security-lab/phase-5d/REPORT.md §3',
       },
     ];
   }

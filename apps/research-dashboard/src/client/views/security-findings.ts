@@ -42,7 +42,7 @@ export function renderSecurityFindings(data: SecurityFindingsViewData): HTMLElem
         ]),
       ]),
       el('span', { className: 'badge high', style: 'font-size: 12px; padding: 4px 10px;' }, [
-        '8 Open Findings',
+        '8 Open Security & Reliability Findings',
       ]),
     ]),
   );
@@ -55,7 +55,7 @@ export function renderSecurityFindings(data: SecurityFindingsViewData): HTMLElem
         'Integrity Principle: Passing Automated Tests ≠ Complete Security',
       ]),
       el('div', { className: 'callout-desc' }, [
-        'Veylith explicitly separates verified unit/integration passes (402/402 tests across 43 files) from holistic threat model coverage. These 8 findings represent known system limitations and security risks that require ongoing architectural work and live model evaluation. Veylith is a research prototype, not a certified production appliance.',
+        'Veylith explicitly separates verified unit/integration passes (408/408 tests across 43 files, 100% passing) from holistic threat model coverage. These 8 findings represent known system limitations and reliability observations that require ongoing architectural work and live model evaluation. Veylith is a research prototype, not a certified production appliance.',
       ]),
     ],
   );
@@ -67,10 +67,10 @@ export function renderSecurityFindings(data: SecurityFindingsViewData): HTMLElem
     { className: 'callout info', style: 'margin-top: 12px; margin-bottom: 0;' },
     [
       el('div', { className: 'callout-title' }, [
-        'Live Meta API Testing Status: Single Compatibility Canary Only',
+        'Live Model Testing Status: Phase 5D Fireworks Evaluated • 6 Reserved Candidates Offline',
       ]),
       el('div', { className: 'callout-desc' }, [
-        'What was tested live: Exactly one real Meta Model API compatibility request in Phase 4B.1 (3,726.52 ms, 599 tokens, $0.00107 spend). This verified HTTP wire protocol, authentication, and cost gating. | What has NOT been tested live: The 6 reserved adversarial candidates remain untouched and unexecuted. The single canary request is NOT an adversarial security benchmark or model detection accuracy claim.',
+        'What was tested live: Phase 4B.1 executed one real Meta Model API compatibility request (3,726.52 ms, 599 tokens, $0.00107 spend). Phase 5D evaluated 91 real Fireworks API inference requests on a frozen 100-case synthetic validation benchmark ($0.169 spend, 100% recall, 0% benign FPR). | What has NOT been tested live: The 6 reserved live adversarial candidates remain sealed offline (0 executions). Broader open-ended production MCP traffic with Meta Muse Spark 1.3 remains untested.',
       ]),
     ],
   );

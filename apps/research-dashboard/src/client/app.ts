@@ -57,11 +57,12 @@ function updateNavigation(route: string): void {
     switch (route) {
       case 'overview':
         pageTitle.textContent = 'Project Overview';
-        breadcrumbs.textContent = 'Evidence Baseline • 14 Scenarios • 402 Workspace Tests Verified';
+        breadcrumbs.textContent = 'Evidence Baseline • 14 Scenarios • 408 Workspace Tests Verified';
         break;
       case 'evaluation-lab':
         pageTitle.textContent = 'Evaluation Lab';
-        breadcrumbs.textContent = 'Phase 2F Development Comparison • Phase 2E Frozen Holdout';
+        breadcrumbs.textContent =
+          'Phase 5D Live Fireworks • Phase 2F Dev Comparison • Phase 2E Frozen Holdout';
         break;
       case 'audit-explorer':
         pageTitle.textContent = 'Audit Explorer';
@@ -69,7 +70,8 @@ function updateNavigation(route: string): void {
         break;
       case 'security-findings':
         pageTitle.textContent = 'Security Findings';
-        breadcrumbs.textContent = '8 Open Vulnerabilities • 6 Reserved Live Muse Candidates';
+        breadcrumbs.textContent =
+          '8 Open Security & Reliability Findings • 6 Reserved Live Muse Candidates';
         break;
     }
   }

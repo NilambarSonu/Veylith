@@ -91,7 +91,7 @@ export function renderAuditExplorer(
 
   const statusSubtext = el('p', { className: 'stat-sub', style: 'margin-top: 4px;' }, [
     auditState.chainVerified
-      ? `SHA-256 hash-chained log: verified 72 cases (1,945 events) against local mutations; external anchoring required for full non-repudiation.`
+      ? `SHA-256 hash-chained log: verified locally against in-situ modifications, reordering, and deletions; external anchoring or public ledger notarization is not implemented.`
       : `Tamper detected: ${auditState.verificationError ?? 'Hash mismatch'}`,
   ]);
 
@@ -244,7 +244,7 @@ export function renderAuditExplorer(
       <span>${auditState.chainVerified ? 'Chain Integrity Validated' : 'Chain Integrity Compromised'}</span>
     `;
     statusSubtext.textContent = auditState.chainVerified
-      ? `SHA-256 hash-chained log: verified 72 cases (1,945 events) against local mutations; external anchoring required for full non-repudiation.`
+      ? `SHA-256 hash-chained log: verified locally against in-situ modifications, reordering, and deletions; external anchoring or public ledger notarization is not implemented.`
       : `Tamper detected: ${auditState.verificationError ?? 'Hash mismatch'}`;
 
     for (const r of records) {
@@ -284,7 +284,7 @@ export function renderAuditExplorer(
     table.innerHTML = `
       <thead>
         <tr>
-          <th>#</th>
+          <th title="Sequence index within this test case's cryptographic chain starting at Genesis (#0)">Case Seq #</th>
           <th>Case ID</th>
           <th>Timestamp</th>
           <th>MCP Method</th>

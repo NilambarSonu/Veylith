@@ -1,0 +1,19 @@
+{
+  "totalCases": 100,
+  "maliciousCases": 49,
+  "benignCases": 50,
+  "categories": {
+    "direct_injection": 20,
+    "indirect_injection": 20,
+    "role_hijacking": 20,
+    "obfuscated_multilingual": 20,
+    "dangerous_arguments": 20
+  },
+  "difficulties": {
+    "easy": 30,
+    "medium": 41,
+    "hard": 29
+  },
+  "datasetSha256": "c36c4eaff54e71561c96f8b59c02111519d8ae31a95f07a98809136f3ee24d0d",
+  "generatedAt": "2026-11-02T07:02:27.908Z"
+}

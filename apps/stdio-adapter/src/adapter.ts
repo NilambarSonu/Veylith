@@ -536,12 +536,9 @@ export class VeylithStdioAdapter {
         durationMs: argInspection.evaluationDurationMs,
       });
 
-      if (
-        argInspection.action === 'block' ||
-        (argInspection.action === 'review' && this.config.failClosed)
-      ) {
+      if (argInspection.action === 'block' || argInspection.action === 'review') {
         const durationMs = Math.round((performance.now() - start) * 100) / 100;
-        this.logger.warn('Tool call blocked by security engine', {
+        this.logger.warn('Tool call quarantined/blocked by security engine', {
           requestId,
           toolName,
           threatCategory: argInspection.threatCategory,
@@ -554,7 +551,7 @@ export class VeylithStdioAdapter {
           content: [
             {
               type: 'text',
-              text: `Veylith policy blocked this call: ${argInspection.explanation}`,
+              text: `Veylith policy ${argInspection.action === 'review' ? 'quarantined' : 'blocked'} this call: ${argInspection.explanation}`,
             },
           ],
           isError: true,
@@ -596,10 +593,13 @@ export class VeylithStdioAdapter {
         };
       if (this.mode === 'standalone' && this.securityEngine) {
         const fresh = await this.securityEngine.inspectArguments(ctx, toolName, args, current);
-        if (fresh.action === 'block' || (fresh.action === 'review' && this.config.failClosed))
+        if (fresh.action === 'block' || fresh.action === 'review')
           return {
             content: [
-              { type: 'text', text: `Veylith policy blocked this call: ${fresh.explanation}` },
+              {
+                type: 'text',
+                text: `Veylith policy ${fresh.action === 'review' ? 'quarantined' : 'blocked'} this call: ${fresh.explanation}`,
+              },
             ],
             isError: true,
           };

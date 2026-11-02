@@ -12,7 +12,7 @@ This runbook ensures clean, reproducible, and professional video recording or li
 - [ ] Confirm clean git working tree and correct branch:
   ```bash
   git branch --show-current
-  # Expected: dev/phase-4-live-test-plan
+  # Expected: dev/phase-5d-live-validation
   ```
 - [ ] Verify node version and dependencies:
   ```bash

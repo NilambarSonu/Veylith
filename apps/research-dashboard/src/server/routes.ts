@@ -105,8 +105,8 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
             phase2fArchiveCommit: '8cdd2a647acf2f31b6ca766e83f7531e68ce2046',
             phase3DashboardCommit: '0650d233337de0200f22bcd21ada28d08923afac',
             manifestSha256: '2270b7052e864a84ec28f38fbd15eeed1ccb50447e0ce934de0d508f2337d89c',
-            targetBranchSnapshot: 'dev/phase-4-live-test-plan',
-            workingTreeStatus: 'dev/phase-4-live-test-plan (recorded snapshot)',
+            targetBranchSnapshot: 'dev/phase-5d-live-validation',
+            workingTreeStatus: 'dev/phase-5d-live-validation (recorded snapshot)',
           },
           metricsSummary: {
             principalScenarios: scenarios.length,
@@ -120,19 +120,43 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
             phase2fTestsPassed: 252,
             automatedTestsPassed: 296,
             automatedTestsTotal: 296,
-            workspaceTestsPassed: 402,
-            workspaceTestsTotal: 402,
+            workspaceTestsPassed: 408,
+            workspaceTestsTotal: 408,
             workspaceTestFiles: 43,
-            lastVerifiedTestRun: '402 tests, 43 files (100% passing)',
+            lastVerifiedTestRun: '408 tests, 43 files (100% passing)',
             reliabilityProbesPassed: reliability.passedCount,
             reliabilityProbesTotal: reliability.totalCount,
             reliabilityProbesFailed: reliability.failedCount,
             failedReliabilityProbes: reliability.probes.filter((p) => !p.passed),
           },
+          phase5dSummary: {
+            provider: 'fireworks',
+            model: 'accounts/fireworks/models/muse-spark-open',
+            datasetCases: 100,
+            datasetSha256: '97383d1180b217130b270c9429dd94e5f6af752e4e92b14f12dfd5326c04df62',
+            attackRecall: 1.0,
+            clearlyBenignFpr: 0.0,
+            ambiguousAllowed: 15,
+            overallAccuracy: 0.85,
+            dispatchedRequests: 91,
+            fastPathRequests: 9,
+            totalTokens: 82312,
+            actualSpendUsd: 0.169359,
+            budgetLimitUsd: 2.0,
+            p50LatencyMs: 7377.15,
+            p95LatencyMs: 14154.43,
+            provenanceNotice:
+              'Empirical evaluation of real Fireworks model inference on the frozen 100-case synthetic validation benchmark (SHA-256: 97383d11...). Not an evaluation of open-ended production MCP traffic.',
+          },
           qualityGates: gates,
           badges: [
-            { label: 'Evaluation Status', value: 'Mock & Deterministic Evaluated', type: 'info' },
-            { label: 'Workspace Tests', value: '402 / 402 Passed (100%)', type: 'success' },
+            { label: 'Evaluation Status', value: 'Live Fireworks & Mock Evaluated', type: 'info' },
+            { label: 'Workspace Tests', value: '408 / 408 Passed (100%)', type: 'success' },
+            {
+              label: 'Phase 5D Live Validation',
+              value: '100% Recall • 0% Benign FPR ($0.169)',
+              type: 'success',
+            },
             {
               label: 'Inherited Reliability',
               value: '13 / 15 Passed (2 Known Failures)',
@@ -207,11 +231,13 @@ export function createRouter(config: DashboardConfig, loader: EvidenceLoader) {
         const phase2aValidation = loader.getPhase2aValidationData();
         const phase2fDev = loader.getPhase2fDevelopmentComparison();
         const phase2eHoldout = loader.getPhase2eHoldoutRuns();
+        const phase5dLive = loader.getPhase5dResults();
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(
           JSON.stringify(
             {
+              phase5dLive,
               phase2aValidation,
               phase2fDevelopment: {
                 datasetDescription:
