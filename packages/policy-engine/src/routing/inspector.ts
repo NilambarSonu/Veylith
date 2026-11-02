@@ -126,7 +126,7 @@ export class BoundaryInspector {
       if (
         !ModelClassificationSchema.safeParse(result).success ||
         result.mode !== this.adapter.mode ||
-        (!result.flagged && result.action !== 'allow') ||
+        (!result.flagged && result.action === 'block') ||
         (result.flagged && result.action === 'allow')
       )
         return unavailable('Malformed or contradictory semantic adapter output');
