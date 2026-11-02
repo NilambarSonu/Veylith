@@ -40,9 +40,9 @@ Veylith explores how security enforcement and measurable evaluation can become p
 - TypeScript-based MCP security gateway and stdio integration.
 - Three-tier hybrid architecture: sub-0.05ms deterministic invariants paired with semantic LLM intelligence.
 - Tamper-evident cryptographic audit hash chain (SHA-256 sequential state linking).
-- Real-world live validation with Fireworks AI `muse-spark-open` (100 fresh cases, 100% precision, 0.0% benign FPR).
+- Real live API inference evaluation with Fireworks AI `muse-spark-open` on frozen synthetic benchmark (100 cases, 100% attack recall, 0.0% clearly-benign FPR, 85.0% benchmark accuracy).
 - Research dashboard with evaluation matrices, latency telemetry, and security findings.
-- Automated test suite (406 tests, 100% passing across 43 files) and browser-verified interactive demonstration.
+- Automated test suite (408 tests, 100% passing across 43 files) and browser-verified interactive demonstration.
 
 ### Current Limitations
 
@@ -179,7 +179,7 @@ pnpm build
 pnpm typecheck
 pnpm security:eval:typecheck
 
-# 5. Execute full workspace test suite (406 tests, 43 files)
+# 5. Execute full workspace test suite (408 tests, 43 files)
 pnpm test:all
 
 # 6. Launch Research Dashboard (local loopback, read-only)
@@ -233,14 +233,14 @@ Veylith avoids marketing claims of "100% prompt injection detection" by providin
 | **Overall Accuracy**        | **73.5%** (50/68 samples)              | **78.0%** (Deterministic) / **80.0%** (Mock)     | **70.6%** (Deterministic) / **66.2%** (Mock)             |
 | **Provenance Nature**       | In-repo validation fixture (not blind) | Procedurally frozen benchmark (commit `1086aef`) | Post-remediation development variants                    |
 
-### Phase 5D Real-World Fireworks AI Live Security Evaluation
+### Phase 5D Live Fireworks AI Security Evaluation on Frozen Synthetic Benchmark
 
-In Phase 5D, Veylith completed a real-world live inference evaluation using **Fireworks AI** (`accounts/fireworks/models/muse-spark-open`) over standard HTTPS chat completions on the frozen 100-case dataset [`security-lab/phase-5c/validation-dataset.json`](file:///Users/nilambarbehera/Documents/Projects/veylith/security-lab/phase-5c/validation-dataset.json) (SHA-256: `97383d1180b217130b270c9429dd94e5f6af752e4e92b14f12dfd5326c04df62`):
+In Phase 5D, Veylith completed a live inference evaluation using **Fireworks AI** (`accounts/fireworks/models/muse-spark-open`) over standard HTTPS chat completions on the frozen 100-case synthetic validation dataset [`security-lab/phase-5c/validation-dataset.json`](file:///Users/nilambarbehera/Documents/Projects/veylith/security-lab/phase-5c/validation-dataset.json) (SHA-256: `97383d1180b217130b270c9429dd94e5f6af752e4e92b14f12dfd5326c04df62`): This represents live model evaluation against a controlled synthetic benchmark—not production MCP traffic or real-world deployment testing.
 
 - **Inference Mode**: 100% Real Live Model Inference (91 live API requests, 9 deterministic fast-path short-circuits).
 - **Attack Recall**: **100.0% (50/50)** malicious injections intercepted or contained.
 - **Clearly-Benign False Positive Rate**: **0.0% (0/35)** false blocks on legitimate developer workflows.
-- **Ambiguous Borderline Handling**: 15 borderline educational/quoted attack cases evaluated; live model recognized non-exploitative context and allowed them (0/15 contained). Offline analysis subsequently resolved prompt specification and engine routing to properly enforce three-outcome quarantine policies.
+- **Ambiguous Borderline Handling**: 15 borderline educational/quoted attack cases evaluated; live model recognized non-exploitative context and returned `ALLOW` (15/15 allowed, 0/15 contained under Phase 5D prompt). Analysis subsequently resolved prompt invariants and engine routing to properly enforce three-outcome quarantine policies (`ALLOW` / `BLOCK` / `REVIEW`).
 - **Confirmed Attack Precision**: **100.0%** (50 true positive blocks / 50 total blocks in Mode C).
 - **F1 Score**: **100.0%**.
 - **Overall Benchmark Accuracy**: **85.0%** (85/100 matching expected ground truth).
@@ -251,7 +251,7 @@ In Phase 5D, Veylith completed a real-world live inference evaluation using **Fi
 ### Full Workspace Test Suite
 
 - **Test Files:** 43 passed (100%)
-- **Tests Passed:** **406 passed (406)** (100%)
+- **Tests Passed:** **408 passed (408)** (100%)
 - **Test Failures:** 0 failures
 - **Execution Time:** ~20 seconds
 

@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![MCP Protocol](https://img.shields.io/badge/MCP_Protocol-2026--07--28-green.svg)](https://modelcontextprotocol.io)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict_ESM-3178C6.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-406%20passing-brightgreen.svg)](<>)
+[![Tests](https://img.shields.io/badge/Tests-408%20passing-brightgreen.svg)](<>)
 [![Track](https://img.shields.io/badge/Meta_Hackathon-Startup_Track-purple.svg)](<>)
 
 ---
@@ -238,9 +238,9 @@ In Phase 4B.1, a single controlled live compatibility canary test was executed a
 
 > **Note on Canary Scope:** This single-request canary proved technical compatibility, provider usage extraction, and financial bounding under real network conditions. It was **not** a statistical security efficacy benchmark.
 
-### Phase 5D: Live Fireworks AI Security Evaluation (Real Model Inference)
+### Phase 5D: Live Fireworks AI Security Evaluation on Frozen Synthetic Benchmark
 
-In Phase 5D, Veylith conducted a comprehensive live evaluation against **Fireworks AI** (`accounts/fireworks/models/muse-spark-open`) over standard HTTPS OpenAI-compatible chat completions using the independently frozen 100-case dataset [`security-lab/phase-5c/validation-dataset.json`](security-lab/phase-5c/validation-dataset.json) (SHA-256: `97383d1180b217130b270c9429dd94e5f6af752e4e92b14f12dfd5326c04df62`).
+In Phase 5D, Veylith conducted a comprehensive live evaluation against **Fireworks AI** (`accounts/fireworks/models/muse-spark-open`) over standard HTTPS OpenAI-compatible chat completions using the independently frozen 100-case synthetic validation dataset [`security-lab/phase-5c/validation-dataset.json`](security-lab/phase-5c/validation-dataset.json) (SHA-256: `97383d1180b217130b270c9429dd94e5f6af752e4e92b14f12dfd5326c04df62`). This experiment evaluated real model inference against a frozen benchmark—not production MCP traffic or real-world deployment testing.
 
 | Evaluation Dimension                   | Phase 5B (Baseline)        | Phase 5C (Offline Calibration)           | Phase 5D (Live Validation — Real API)        |
 | :------------------------------------- | :------------------------- | :--------------------------------------- | :------------------------------------------- |
@@ -395,7 +395,7 @@ _Inspect the evaluation matrix, view the tamper-evident audit log chain, and rev
 ### 4. Run Automated Test Suites
 
 ```bash
-# Run all 406 automated tests across 43 test files
+# Run all 408 automated tests across 43 test files
 pnpm test:all
 
 # Run strict TypeScript typecheck across all 8 workspace packages
@@ -499,7 +499,7 @@ pnpm test:all
 **Latest Verified Test Results:**
 
 - **43 test files passed (100%)**
-- **406 tests passed (100%)**
+- **408 tests passed (100%)**
 - **0 test failures**
 - Strict ESM TypeScript typechecking passing across all 8 workspace projects (`pnpm typecheck`).
 - Clean build across all packages (`pnpm build`).
