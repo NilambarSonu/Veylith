@@ -261,8 +261,8 @@ describe('SecurityInspectionEngine', () => {
       expect(res.explanation).toContain('High-risk arguments quarantined');
     });
 
-    it('preserves action: "review" in inspectDiscovery for ambiguous tool metadata', async () => {
-      const reviewEngine = new SecurityInspectionEngine([], reviewAdapter);
+    it('preserves action: "review" in inspectDiscovery and withholds tool from cleanTools', async () => {
+      const reviewEngine = new SecurityInspectionEngine([], reviewAdapter, { failClosed: false });
       const outcome = await reviewEngine.inspectDiscovery([
         {
           name: 'doc_viewer',
@@ -273,6 +273,33 @@ describe('SecurityInspectionEngine', () => {
       expect(outcome.results).toHaveLength(1);
       expect(outcome.results[0]?.action).toBe('review');
       expect(outcome.results[0]?.explanation).toContain('Tool discovery marked for review');
+      // Invariant: Unapproved tool under review must NOT be exposed in cleanTools
+      expect(outcome.cleanTools).toHaveLength(0);
+      expect(outcome.blockedTools).toHaveLength(1);
+    });
+
+    it('quarantines untrusted response in inspectResponse even when failClosed is false', async () => {
+      const reviewEngineFailOpen = new SecurityInspectionEngine([], reviewAdapter, {
+        failClosed: false,
+      });
+
+      const outcome = await reviewEngineFailOpen.inspectResponse(
+        {
+          requestId: 'req-amb-3-failopen',
+          stage: 'call_response',
+          method: 'tools/call',
+          toolName: 'doc_viewer',
+          timestamp: new Date().toISOString(),
+        },
+        'doc_viewer',
+        [{ type: 'text', text: 'Educational excerpt: how prompt injections work' }],
+      );
+
+      // Invariant: Response under review must NEVER be delivered unredacted to agent
+      expect(outcome.result.action).toBe('review');
+      expect(outcome.isRedacted).toBe(true);
+      expect(outcome.sanitizedContent[0]?.text).toContain('[Veylith Security Notice]');
+      expect(outcome.sanitizedContent[0]?.text).not.toContain('Educational excerpt');
     });
 
     it('preserves action: "review" and applies failClosed redaction in inspectResponse', async () => {

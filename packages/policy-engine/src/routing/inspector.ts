@@ -202,8 +202,7 @@ export class BoundaryInspector {
     const cached = this.cache.get(key);
     if (cached) {
       this.cacheHit();
-      if (cached.action === 'allow' || (cached.action === 'review' && !this.failClosed))
-        this.router.remember(ctx, text);
+      if (cached.action === 'allow') this.router.remember(ctx, text);
       return { ...cached, routing: { ...r.routing, reason: 'scoped-semantic-cache-hit' } };
     }
     const model = await this.infer(r.payload, 'call_response', r.routing, ctx.requestId, {
@@ -241,8 +240,7 @@ export class BoundaryInspector {
       evaluationDurationMs: performance.now() - start,
     };
     if (model.action !== 'review') this.cache.set(key, result);
-    if (result.action === 'allow' || (result.action === 'review' && !this.failClosed))
-      this.router.remember(ctx, text);
+    if (result.action === 'allow') this.router.remember(ctx, text);
     return result;
   }
 }

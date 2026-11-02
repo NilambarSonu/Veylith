@@ -498,7 +498,7 @@ export class SecurityInspectionEngine {
       results.push(res);
       this.recordAudit(res, 'tools/list', tool.name, { serverId, clientIdentity, sessionId });
 
-      if (finalAction === 'block' || (finalAction === 'review' && this.failClosed)) {
+      if (finalAction === 'block' || finalAction === 'review') {
         blockedTools.push({
           name: tool.name,
           reason: res.explanation,
@@ -764,7 +764,7 @@ export class SecurityInspectionEngine {
       content.every((c) => c.type === 'text' && typeof c.text === 'string'),
     );
     this.recordAudit(result, 'tools/call', toolName, ctx);
-    const isRedacted = result.action === 'block' || (result.action === 'review' && this.failClosed);
+    const isRedacted = result.action === 'block' || result.action === 'review';
     return {
       result,
       isRedacted,
@@ -908,7 +908,7 @@ export class SecurityInspectionEngine {
         );
         results.push(review);
         this.recordAudit(review, 'resources/list', res.uri, ctx);
-        if (review.action === 'block' || (review.action === 'review' && this.failClosed)) {
+        if (review.action === 'block' || review.action === 'review') {
           blockedResources.push({
             uri: res.uri,
             name: res.name,
@@ -989,7 +989,7 @@ export class SecurityInspectionEngine {
         );
         results.push(review);
         this.recordAudit(review, 'resources/list', tpl.uriTemplate, ctx);
-        if (review.action === 'block' || (review.action === 'review' && this.failClosed)) {
+        if (review.action === 'block' || review.action === 'review') {
           continue;
         }
         cleanTemplates.push(tpl);
@@ -1174,7 +1174,7 @@ export class SecurityInspectionEngine {
       ),
     );
     this.recordAudit(result, 'resources/read', uri, ctx);
-    const isRedacted = result.action === 'block' || (result.action === 'review' && this.failClosed);
+    const isRedacted = result.action === 'block' || result.action === 'review';
     return {
       sanitizedItems: isRedacted
         ? items.map((item) =>
@@ -1317,7 +1317,7 @@ export class SecurityInspectionEngine {
         );
         results.push(review);
         this.recordAudit(review, 'prompts/list', prompt.name, ctx);
-        if (review.action === 'block' || (review.action === 'review' && this.failClosed)) {
+        if (review.action === 'block' || review.action === 'review') {
           blockedPrompts.push({
             name: prompt.name,
             reason: review.explanation,
@@ -1424,7 +1424,7 @@ export class SecurityInspectionEngine {
       messages.every((msg) => msg.content.type === 'text' && typeof msg.content.text === 'string'),
     );
     this.recordAudit(result, 'prompts/get', promptName, ctx);
-    const isRedacted = result.action === 'block' || (result.action === 'review' && this.failClosed);
+    const isRedacted = result.action === 'block' || result.action === 'review';
     return {
       sanitizedMessages: isRedacted
         ? messages.map((msg) => ({

@@ -353,6 +353,13 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
       lower.includes('bearer eyjhbgci') ||
       lower.includes('-----begin private key-----');
 
+    const isAmbiguousReview =
+      (lower.includes('security research paper excerpt') ||
+        lower.includes('prompt engineering guide') ||
+        lower.includes('common attack strings include') ||
+        lower.includes('educational excerpt:')) &&
+      !lower.includes('untrusted_content');
+
     const isQuotedSecurityExample =
       (lower.includes('for example') ||
         lower.includes('guidelines') ||
@@ -370,7 +377,13 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
     let confidence = 0.98;
     const evidence: string[] = [];
 
-    if (isQuotedSecurityExample) {
+    if (isAmbiguousReview) {
+      flagged = false;
+      action = 'review';
+      threatCategory = 'none';
+      explanation = 'Quoted security research or educational excerpt flagged for review';
+      confidence = 0.85;
+    } else if (isQuotedSecurityExample) {
       flagged = false;
       action = 'allow';
       threatCategory = 'none';
