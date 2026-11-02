@@ -367,7 +367,7 @@ _Inspect the evaluation matrix, view the tamper-evident audit log chain, and rev
 ### 4. Run Automated Test Suites
 
 ```bash
-# Run all 388 automated tests across 42 test files
+# Run all 400 automated tests across 43 test files
 pnpm test:all
 
 # Run strict TypeScript typecheck across all 8 workspace packages
