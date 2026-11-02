@@ -1,0 +1,27 @@
+{
+  "baseCommit": "82b492a5d8c8ae54d2b7974df342e976914a7c49",
+  "frozenFileSha256": {
+    "security-lab/v1/holdout.json": "2270b7052e864a84ec28f38fbd15eeed1ccb50447e0ce934de0d508f2337d89c",
+    "security-lab/v1/manifest.json": "9e9c3631be67ef284858b8a3a874be4866e917f25ed6d3c15ed6eafe1d68dacf",
+    "security-lab/v1/live-reserve.json": "e4f918504d7a54bf89a4f599fe6c6a2ef7de9a42c86909613c80de5f826ee276"
+  },
+  "originalEvidenceTree": "c23c6d92b44fe39bc2b5e21bb3eb57c2b5e73eba",
+  "noReservedLiveCaseExecuted": true,
+  "noPhase2EHoldoutEvaluationInRemediation": true,
+  "reproductions": {
+    "routingAndRetention": {
+      "newTests": 5,
+      "failedBefore": 5
+    },
+    "protocol": {
+      "newTests": 10,
+      "failedBefore": 9,
+      "passedBefore": 1
+    },
+    "originalBaseline": {
+      "tests": 194,
+      "passed": 194
+    }
+  },
+  "integrityNote": "The baseline includes the same new development assertions later used for regression. Original evidence and frozen labels remain unchanged."
+}

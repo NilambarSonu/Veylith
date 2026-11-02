@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Veylith — AI Agent Security Research Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="dashboard-shell">
+      <!-- Sidebar Navigation -->
+      <aside class="sidebar" role="navigation" aria-label="Main Navigation">
+        <div class="brand">
+          <svg
+            class="brand-shield"
+            viewBox="0 0 32 32"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M16 2L4 7v9c0 8 5.12 13.12 12 14 6.88-.88 12-6 12-14V7L16 2z"
+              fill="#0D1424"
+              stroke="#00BFFF"
+              stroke-width="2"
+            />
+            <path d="M16 8l-6 6 1.41 1.41L16 10.83l4.59 4.58L22 14l-6-6z" fill="#00BFFF" />
+          </svg>
+          <div class="brand-text">
+            <span class="brand-name">VEYLITH</span>
+            <span class="brand-sub">Security Boundary</span>
+          </div>
+        </div>
+
+        <nav class="nav-menu">
+          <a href="#overview" class="nav-item active" id="nav-overview" aria-keyshortcuts="1">
+            <span class="nav-num">1</span>
+            <span class="nav-label">Overview</span>
+          </a>
+          <a href="#evaluation-lab" class="nav-item" id="nav-evaluation-lab" aria-keyshortcuts="2">
+            <span class="nav-num">2</span>
+            <span class="nav-label">Evaluation Lab</span>
+          </a>
+          <a href="#audit-explorer" class="nav-item" id="nav-audit-explorer" aria-keyshortcuts="3">
+            <span class="nav-num">3</span>
+            <span class="nav-label">Audit Explorer</span>
+          </a>
+          <a
+            href="#security-findings"
+            class="nav-item"
+            id="nav-security-findings"
+            aria-keyshortcuts="4"
+          >
+            <span class="nav-num">4</span>
+            <span class="nav-label">Security Findings</span>
+          </a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="badge-status-local" title="Loopback Interface Enforced">
+            <span class="status-dot"></span>
+            <span>127.0.0.1 Only</span>
+          </div>
+          <div class="sidebar-meta">
+            <span>Read-Only Lab</span>
+            <span class="muted-tag">v0.1.0-phase3</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main class="main-content" role="main">
+        <header class="top-bar">
+          <div class="top-bar-left">
+            <h1 id="page-title" class="page-title">Overview</h1>
+            <div class="breadcrumbs" id="breadcrumbs">Local Evaluation Evidence</div>
+          </div>
+          <div class="top-bar-right">
+            <div class="system-status-pill">
+              <span class="status-indicator-green"></span>
+              <span class="status-pill-text">Mock Mode &bull; Read-Only</span>
+            </div>
+            <button id="btn-refresh" class="btn-refresh" title="Reload evidence from local files">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
+                <path
+                  d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
+                />
+              </svg>
+              <span>Refresh</span>
+            </button>
+          </div>
+        </header>
+
+        <section id="app-content" class="content-body" aria-live="polite">
+          <!-- Views dynamically injected here -->
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading local Veylith security evidence...</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Detail Drawer for Audit Explorer -->
+    <div id="detail-drawer" class="drawer-overlay" aria-hidden="true">
+      <div class="drawer-content" role="dialog" aria-labelledby="drawer-title">
+        <div class="drawer-header">
+          <h2 id="drawer-title" class="drawer-title">Audit Record Details</h2>
+          <button id="drawer-close" class="btn-close" aria-label="Close detail view">
+            &times;
+          </button>
+        </div>
+        <div id="drawer-body" class="drawer-body"></div>
+      </div>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

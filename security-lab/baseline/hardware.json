@@ -1,0 +1,10 @@
+{
+  "commands": {
+    "memoryBytes": "34359738368",
+    "hardwareModel": "Mac17,4",
+    "cpuModel": "Apple M5",
+    "logicalCpus": "10",
+    "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.2\nBuildVersion:\t\t26B118"
+  },
+  "recordedFor": "Phase 2E local benchmark; not a portable constant"
+}

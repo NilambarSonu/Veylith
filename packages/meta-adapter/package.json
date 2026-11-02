@@ -1,0 +1,19 @@
+{
+  "name": "@veylith/meta-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@veylith/core": "workspace:*",
+    "zod": "^4.2.0"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run"
+  }
+}

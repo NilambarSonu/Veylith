@@ -1,0 +1,25 @@
+[
+  {
+    "name": "echo",
+    "description": "Returns the input message unchanged",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "message": { "type": "string", "description": "The message to echo back" }
+      },
+      "required": ["message"]
+    }
+  },
+  {
+    "name": "add",
+    "description": "Adds two numbers and returns the result",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "a": { "type": "number", "description": "First number" },
+        "b": { "type": "number", "description": "Second number" }
+      },
+      "required": ["a", "b"]
+    }
+  }
+]

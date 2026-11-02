@@ -1,0 +1,45 @@
+name: CI Quality Gates
+
+on:
+  push:
+    branches: [main, dev/*]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Typecheck, Lint, Test & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 12.10.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check code formatting
+        run: pnpm format:check
+
+      - name: Run ESLint
+        run: pnpm lint
+
+      - name: Type check workspace
+        run: pnpm typecheck
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Run unit & integration tests
+        run: pnpm test:all

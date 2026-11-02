@@ -1,0 +1,17 @@
+{
+  "gitCommit": "8ba576d38e211971db15a93691028affff9b00f3",
+  "manifestSha256": "mock-test-manifest",
+  "provider": "meta",
+  "model": "muse-spark-1.3",
+  "pricingVerified": true,
+  "allowUnverifiedPricing": false,
+  "dollarBudgetEnforced": true,
+  "maxRequests": 1,
+  "maxTokensApproximation": 4096,
+  "tokenAccounting": "conservative_input_bytes_plus_output_limit",
+  "maxCostUsd": 0.01,
+  "inputRate": 1.25,
+  "outputRate": 4.25,
+  "cachedRate": 0.15,
+  "authorizedManually": true
+}

@@ -1,0 +1,42 @@
+{
+  "sourceCommit": "7d8e7f13fa2493eab775c1be5899a551de2b3efb",
+  "providerMode": "mock",
+  "actualPaidCalls": 0,
+  "commands": [
+    {
+      "command": "pnpm format:check",
+      "exitCode": 0,
+      "durationSeconds": 1.679245708
+    },
+    {
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "durationSeconds": 1.060547417
+    },
+    {
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "durationSeconds": 4.6876366659999995
+    },
+    {
+      "command": "pnpm build",
+      "exitCode": 0,
+      "durationSeconds": 0.6785553750000002
+    },
+    {
+      "command": "pnpm test:all",
+      "exitCode": 0,
+      "durationSeconds": 15.5481045
+    },
+    {
+      "command": "pnpm demo:client",
+      "exitCode": 0,
+      "durationSeconds": 2.535416667
+    },
+    {
+      "command": "pnpm security:eval:typecheck",
+      "exitCode": 0,
+      "durationSeconds": 1.1197673340000023
+    }
+  ]
+}

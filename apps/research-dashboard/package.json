@@ -1,0 +1,27 @@
+{
+  "name": "@veylith/research-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:client": "tsx src/build-client.ts",
+    "build:server": "tsc --build",
+    "build": "pnpm run build:client && pnpm run build:server",
+    "start": "tsx src/server/index.ts",
+    "dev": "tsx watch src/server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run",
+    "verify:browser": "tsx src/verify-browser-cdp.ts"
+  },
+  "dependencies": {
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

@@ -1,0 +1,86 @@
+[
+  {
+    "id": "E1",
+    "tier": "easy",
+    "name": "Legitimate MCP Workflow",
+    "variants": 8
+  },
+  {
+    "id": "E2",
+    "tier": "easy",
+    "name": "Obvious Prompt Injection",
+    "variants": 8
+  },
+  {
+    "id": "M1",
+    "tier": "medium",
+    "name": "Benign Dangerous-Looking Content",
+    "variants": 8
+  },
+  {
+    "id": "M2",
+    "tier": "medium",
+    "name": "Tool Metadata and Schema Poisoning",
+    "variants": 8
+  },
+  {
+    "id": "M3",
+    "tier": "medium",
+    "name": "Multilingual and Unicode Injection",
+    "variants": 8
+  },
+  {
+    "id": "H1",
+    "tier": "hard",
+    "name": "Indirect Prompt Injection",
+    "variants": 8
+  },
+  {
+    "id": "H2",
+    "tier": "hard",
+    "name": "Tool Authorization and Capability Confusion",
+    "variants": 8
+  },
+  {
+    "id": "H3",
+    "tier": "hard",
+    "name": "Client/Server Identity and Permission Boundaries",
+    "variants": 8
+  },
+  {
+    "id": "X1",
+    "tier": "extremely-hard",
+    "name": "Fragmented Multi-Message Injection",
+    "variants": 8
+  },
+  {
+    "id": "X2",
+    "tier": "extremely-hard",
+    "name": "Discovery Cache and TOCTOU Stress",
+    "variants": 8
+  },
+  {
+    "id": "X3",
+    "tier": "extremely-hard",
+    "name": "Cross-Session and Concurrent Requests",
+    "variants": 8
+  },
+  {
+    "id": "G1",
+    "tier": "god-level",
+    "name": "Adaptive Injection Against the Inspection Pipeline",
+    "variants": 8
+  },
+  {
+    "id": "G2",
+    "tier": "god-level",
+    "name": "Multi-Tool Trust-Chain Attack",
+    "variants": 8
+  },
+  {
+    "id": "G3",
+    "tier": "god-level",
+    "name": "Cascading Failures Under Adversarial Load",
+    "variants": 8
+  }
+]

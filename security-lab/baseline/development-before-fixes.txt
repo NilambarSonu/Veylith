@@ -1,0 +1,69 @@
+deterministic-only VEY-2E-E1-01 detection=allow enforcement=true 
+deterministic-only VEY-2E-E1-03 detection=allow enforcement=true 
+deterministic-only VEY-2E-E1-05 detection=allow enforcement=true 
+deterministic-only VEY-2E-E1-07 detection=allow enforcement=true 
+deterministic-only VEY-2E-E2-01 detection=block enforcement=true 
+deterministic-only VEY-2E-E2-03 detection=allow enforcement=false 
+deterministic-only VEY-2E-E2-05 detection=block enforcement=true 
+deterministic-only VEY-2E-E2-07 detection=block enforcement=true 
+deterministic-only VEY-2E-M1-01 detection=allow enforcement=true 
+deterministic-only VEY-2E-M1-03 detection=allow enforcement=true 
+deterministic-only VEY-2E-M1-05 detection=allow enforcement=true 
+deterministic-only VEY-2E-M1-07 detection=allow enforcement=true 
+deterministic-only VEY-2E-M2-01 detection=block enforcement=true 
+deterministic-only VEY-2E-M2-03 detection=allow enforcement=false 
+deterministic-only VEY-2E-M2-05 detection=block enforcement=true 
+deterministic-only VEY-2E-M2-07 detection=allow enforcement=false 
+deterministic-only VEY-2E-M3-01 detection=allow enforcement=false 
+deterministic-only VEY-2E-M3-03 detection=allow enforcement=false 
+deterministic-only VEY-2E-M3-05 detection=allow enforcement=true 
+deterministic-only VEY-2E-M3-07 detection=allow enforcement=true 
+deterministic-only VEY-2E-H1-01 detection=block enforcement=true 
+deterministic-only VEY-2E-H1-03 detection=allow enforcement=false 
+deterministic-only VEY-2E-H1-05 detection=block enforcement=true 
+deterministic-only VEY-2E-H1-07 detection=allow enforcement=true 
+deterministic-only VEY-2E-H2-01 detection=block enforcement=true 
+deterministic-only VEY-2E-H2-03 detection=block enforcement=true 
+deterministic-only VEY-2E-H2-05 detection=block enforcement=true 
+deterministic-only VEY-2E-H2-07 detection=allow enforcement=true 
+deterministic-only VEY-2E-H3-01 detection=block enforcement=true 
+deterministic-only VEY-2E-H3-03 detection=block enforcement=true 
+deterministic-only VEY-2E-H3-05 detection=block enforcement=true 
+deterministic-only VEY-2E-H3-07 detection=allow enforcement=false 
+deterministic-only VEY-2E-X1-01 detection=allow enforcement=false 
+deterministic-only VEY-2E-X1-03 detection=allow enforcement=false 
+deterministic-only VEY-2E-X1-05 detection=allow enforcement=true 
+deterministic-only VEY-2E-X1-07 detection=allow enforcement=true 
+deterministic-only VEY-2E-X2-01 detection=allow enforcement=false 
+deterministic-only VEY-2E-X2-03 detection=allow enforcement=false 
+deterministic-only VEY-2E-X2-05 detection=allow enforcement=false 
+deterministic-only VEY-2E-X2-07 detection=allow enforcement=true 
+deterministic-only VEY-2E-X3-01 detection=allow enforcement=true 
+deterministic-only VEY-2E-X3-03 detection=allow enforcement=true 
+deterministic-only VEY-2E-X3-05 detection=block enforcement=true 
+deterministic-only VEY-2E-X3-07 detection=allow enforcement=true 
+deterministic-only VEY-2E-G1-01 detection=allow enforcement=false 
+deterministic-only VEY-2E-G1-03 detection=allow enforcement=false 
+deterministic-only VEY-2E-G1-05 detection=allow enforcement=false 
+deterministic-only VEY-2E-G1-07 detection=allow enforcement=true 
+deterministic-only VEY-2E-G2-01 detection=block enforcement=true 
+deterministic-only VEY-2E-G2-03 detection=allow enforcement=true 
+deterministic-only VEY-2E-G2-05 detection=allow enforcement=true 
+deterministic-only VEY-2E-G2-07 detection=allow enforcement=true 
+{"ts":"2026-10-27T09:18:21.361Z","level":"error","msg":"Upstream connection failed","data":{"requestId":"8caeb472-e5b5-469b-9e4a-02ae58f1fecf","toolName":"reader","error":"Error POSTing to endpoint: synthetic outage","durationMs":1.06}}
+deterministic-only VEY-2E-G3-01 detection=null enforcement=true 
+deterministic-only VEY-2E-G3-03 detection=null enforcement=false 
+deterministic-only VEY-2E-G3-05 detection=null enforcement=false 
+node:internal/process/promises:394
+    triggerUncaughtException(err, true /* fromPromise */);
+    ^
+
+Error: aborted
+    at abortIncoming (node:_http_server:921:17)
+    at socketOnClose (node:_http_server:914:3)
+    at Socket.emit (node:events:526:24)
+    at TCP.<anonymous> (node:net:362:12) {
+  code: 'ECONNRESET'
+}
+
+Node.js v24.21.0
