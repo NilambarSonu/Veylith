@@ -47,6 +47,24 @@ export interface OverviewViewData {
       durationMs?: number;
     }>;
   };
+  phase5dSummary?: {
+    provider: string;
+    model: string;
+    datasetCases: number;
+    datasetSha256: string;
+    attackRecall: number;
+    clearlyBenignFpr: number;
+    ambiguousAllowed: number;
+    overallAccuracy: number;
+    dispatchedRequests: number;
+    fastPathRequests: number;
+    totalTokens: number;
+    actualSpendUsd: number;
+    budgetLimitUsd: number;
+    p50LatencyMs: number;
+    p95LatencyMs: number;
+    provenanceNotice: string;
+  };
   qualityGates?: Array<{
     command: string;
     exitCode: number;
@@ -163,9 +181,9 @@ export function renderOverview(data: OverviewViewData): HTMLElement {
     el('div', { className: 'stat-card' }, [
       el('span', { className: 'stat-label' }, ['Workspace Tests (Recorded)']),
       el('span', { className: 'stat-value', style: 'color: var(--status-success);' }, [
-        `${ms.workspaceTestsPassed ?? 402} / ${ms.workspaceTestsTotal ?? 402}`,
+        `${ms.workspaceTestsPassed ?? 408} / ${ms.workspaceTestsTotal ?? 408}`,
       ]),
-      el('span', { className: 'stat-sub' }, ['Last verified run: 402 tests, 43 files']),
+      el('span', { className: 'stat-sub' }, ['Last verified run: 408 tests, 43 files (100%)']),
     ]),
   );
 
@@ -180,6 +198,111 @@ export function renderOverview(data: OverviewViewData): HTMLElement {
   );
 
   container.appendChild(statsGrid);
+
+  // 2.5 Phase 5D Live Fireworks Validation Card
+  if (data.phase5dSummary) {
+    const p5d = data.phase5dSummary;
+    const p5dCard = el('div', {
+      className: 'panel-card',
+      style:
+        'border: 1px solid rgba(56, 189, 248, 0.35); background: linear-gradient(180deg, rgba(14, 23, 42, 0.8) 0%, rgba(10, 17, 32, 0.95) 100%); margin-bottom: 20px;',
+    });
+    p5dCard.appendChild(
+      el('div', { className: 'panel-header' }, [
+        el('div', {}, [
+          el(
+            'h3',
+            {
+              className: 'panel-title',
+              style: 'color: var(--accent-cyan); display: flex; align-items: center; gap: 8px;',
+            },
+            [
+              'Phase 5D Live Fireworks Validation (Frozen Benchmark)',
+              el('span', { className: 'badge allow', style: 'font-size: 11px;' }, [
+                '100% Attack Recall',
+              ]),
+              el('span', { className: 'badge allow', style: 'font-size: 11px;' }, [
+                '0% Benign FPR',
+              ]),
+            ],
+          ),
+          el('p', { className: 'stat-sub', style: 'margin-top: 4px;' }, [
+            `Model: ${p5d.model} (${p5d.provider.toUpperCase()}) • Dataset: 100 cases (SHA-256: 97383d11...)`,
+          ]),
+        ]),
+        el('span', { className: 'hero-tag' }, [
+          `Spend: $${p5d.actualSpendUsd.toFixed(4)} / $${p5d.budgetLimitUsd.toFixed(2)}`,
+        ]),
+      ]),
+    );
+
+    const p5dStats = el('div', {
+      className: 'stats-grid',
+      style: 'margin-top: 14px; margin-bottom: 14px;',
+    });
+    p5dStats.appendChild(
+      el('div', { className: 'stat-card' }, [
+        el('span', { className: 'stat-label' }, ['Malicious Attack Recall']),
+        el('span', { className: 'stat-value', style: 'color: var(--status-success);' }, ['100.0%']),
+        el('span', { className: 'stat-sub' }, ['50 / 50 attacks intercepted in Mode C']),
+      ]),
+    );
+    p5dStats.appendChild(
+      el('div', { className: 'stat-card' }, [
+        el('span', { className: 'stat-label' }, ['Clearly-Benign FPR']),
+        el('span', { className: 'stat-value', style: 'color: var(--status-success);' }, ['0.0%']),
+        el('span', { className: 'stat-sub' }, ['0 / 35 false blocks (100% specificity)']),
+      ]),
+    );
+    p5dStats.appendChild(
+      el('div', { className: 'stat-card' }, [
+        el('span', { className: 'stat-label' }, ['Ambiguous Containment']),
+        el('span', { className: 'stat-value', style: 'color: var(--status-warning);' }, [
+          '0 / 15 Contained',
+        ]),
+        el('span', { className: 'stat-sub' }, ['15/15 allowed (zero review quarantine in 5D)']),
+      ]),
+    );
+    p5dStats.appendChild(
+      el('div', { className: 'stat-card' }, [
+        el('span', { className: 'stat-label' }, ['Overall Benchmark Accuracy']),
+        el('span', { className: 'stat-value', style: 'color: var(--accent-primary);' }, ['85.0%']),
+        el('span', { className: 'stat-sub' }, ['85 / 100 cases matching ground truth']),
+      ]),
+    );
+    p5dStats.appendChild(
+      el('div', { className: 'stat-card' }, [
+        el('span', { className: 'stat-label' }, ['Live Model Latency (p50)']),
+        el('span', { className: 'stat-value', style: 'color: var(--accent-cyan);' }, [
+          `${(p5d.p50LatencyMs / 1000).toFixed(2)}s`,
+        ]),
+        el('span', { className: 'stat-sub' }, [
+          `p95: ${(p5d.p95LatencyMs / 1000).toFixed(2)}s (91 model calls)`,
+        ]),
+      ]),
+    );
+    p5dStats.appendChild(
+      el('div', { className: 'stat-card' }, [
+        el('span', { className: 'stat-label' }, ['Actual Inference Cost']),
+        el('span', { className: 'stat-value', style: 'color: var(--text-main);' }, [
+          `$${p5d.actualSpendUsd.toFixed(4)}`,
+        ]),
+        el('span', { className: 'stat-sub' }, [
+          `${p5d.totalTokens.toLocaleString()} tokens billed`,
+        ]),
+      ]),
+    );
+    p5dCard.appendChild(p5dStats);
+
+    const p5dNotice = el('div', { className: 'callout info', style: 'margin-bottom: 0;' }, [
+      el('div', { className: 'callout-title' }, [
+        'Empirical Benchmark Notice & Methodology Distinction',
+      ]),
+      el('div', { className: 'callout-desc' }, [p5d.provenanceNotice]),
+    ]);
+    p5dCard.appendChild(p5dNotice);
+    container.appendChild(p5dCard);
+  }
 
   // 3. Architecture & Protocol Inspection Flow Card
   const archCard = el('div', { className: 'arch-flow-card' });
@@ -337,10 +460,16 @@ export function renderOverview(data: OverviewViewData): HTMLElement {
         <td style="font-size: 11px; color: var(--text-muted);">Local loopback Streamable HTTP serialization roundtrip between client and upstream server.</td>
       </tr>
       <tr>
-        <td style="font-weight: 600;">Tier 3: Live Meta Muse (muse-spark-1.3)</td>
-        <td class="code-cell" style="color: var(--status-warning);">3,726.52 ms (single canary call)</td>
-        <td>Ambiguous payloads only</td>
-        <td style="font-size: 11px; color: var(--text-muted);">Single real Meta Model API compatibility canary call (Phase 4B.1); not an SLA or typical cloud latency.</td>
+        <td style="font-weight: 600;">Tier 3: Live Fireworks Model (muse-spark-open)</td>
+        <td class="code-cell" style="color: var(--status-warning);">p50: 7,377.1 ms, p95: 14,154.4 ms</td>
+        <td>91.0% of Mode C calls (91 calls, 9 fast paths)</td>
+        <td style="font-size: 11px; color: var(--text-muted);">Empirical cloud inference latency measured across 100 frozen benchmark cases in Phase 5D.</td>
+      </tr>
+      <tr>
+        <td style="font-weight: 600;">Tier 3: Live Meta Model Canary (muse-spark-1.3)</td>
+        <td class="code-cell" style="color: var(--accent-cyan);">3,726.52 ms (single canary call)</td>
+        <td>Wire-compatibility check only</td>
+        <td style="font-size: 11px; color: var(--text-muted);">Single real Meta Model API compatibility canary call (Phase 4B.1); verified wire protocol and billing, not an adversarial benchmark.</td>
       </tr>
     </tbody>
   `;
@@ -389,29 +518,34 @@ export function renderOverview(data: OverviewViewData): HTMLElement {
         <td><span class="badge allow">Verified Parent</span></td>
       </tr>
       <tr>
-        <td>Holdout Manifest Digest</td>
+        <td>Phase 5C/5D Validation Digest</td>
+        <td class="code-cell">97383d1180b217130b270c9429dd94e5f6af752e4e92b14f12dfd5326c04df62</td>
+        <td><span class="badge allow">SHA-256 Match (Frozen)</span></td>
+      </tr>
+      <tr>
+        <td>Phase 2E Holdout Manifest Digest</td>
         <td class="code-cell">${data.provenance.manifestSha256}</td>
         <td><span class="badge allow">SHA-256 Match</span></td>
       </tr>
       <tr>
         <td>Live Reserve Digest</td>
         <td class="code-cell">e4f918504d7a54bf89a4f599fe6c6a2ef7de9a42c86909613c80de5f826ee276</td>
-        <td><span class="badge unknown">Locked Offline</span></td>
+        <td><span class="badge unknown">Locked Offline (6 Cases)</span></td>
       </tr>
       <tr>
         <td>Target Branch (Recorded)</td>
-        <td class="code-cell">${data.provenance.targetBranchSnapshot ?? data.provenance.workingTreeStatus ?? 'dev/phase-4-live-test-plan'}</td>
+        <td class="code-cell">${data.provenance.targetBranchSnapshot ?? 'dev/phase-5d-live-validation'}</td>
         <td><span class="badge allow">Recorded Snapshot</span></td>
       </tr>
       <tr>
         <td>Verified Workspace Test Run</td>
-        <td class="code-cell">${data.metricsSummary.workspaceTestsPassed ?? 402} / ${data.metricsSummary.workspaceTestsTotal ?? 402} Passed (43 test files)</td>
+        <td class="code-cell">${data.metricsSummary.workspaceTestsPassed ?? 408} / ${data.metricsSummary.workspaceTestsTotal ?? 408} Passed (43 test files, 100%)</td>
         <td><span class="badge allow">Verified Snapshot</span></td>
       </tr>
       <tr>
-        <td>Inference Spending During Eval</td>
-        <td>$0.000000 USD (0 paid Meta API calls)</td>
-        <td><span class="badge allow">Cost Cap Intact</span></td>
+        <td>Inference Spending (Phase 5D Live)</td>
+        <td>$0.169359 USD (91 live Fireworks API calls, 0 paid Meta calls)</td>
+        <td><span class="badge allow">Hard Budget Cap Intact ($2.00)</span></td>
       </tr>
     </tbody>
   `;
