@@ -204,4 +204,97 @@ describe('SecurityInspectionEngine', () => {
       expect(outcome.blockedTools[0]?.reason).toContain('High-risk tool discovery quarantined');
     });
   });
+
+  describe('Ambiguous-Case Three-Outcome Policy Enforcement', () => {
+    const reviewAdapter = {
+      model: 'muse-spark-open',
+      mode: 'live' as const,
+      inspect: async () => ({
+        flagged: false,
+        threatCategory: 'none' as const,
+        action: 'review' as const,
+        explanation: 'Quoted security research or educational excerpt flagged for review',
+        confidence: 0.85,
+        evidence: ['Quoted injection string in educational context'],
+        durationMs: 45,
+        mode: 'live' as const,
+        model: 'muse-spark-open',
+      }),
+    };
+
+    it('preserves action: "review" in inspectArguments for medium-risk ambiguous inputs', async () => {
+      const reviewEngine = new SecurityInspectionEngine([], reviewAdapter);
+      const res = await reviewEngine.inspectArguments(
+        {
+          requestId: 'req-amb-1',
+          stage: 'call_arguments',
+          method: 'tools/call',
+          toolName: 'knowledge_search',
+          timestamp: new Date().toISOString(),
+        },
+        'knowledge_search',
+        { query: 'Search instructions for developer payload documentation' },
+      );
+
+      // Invariant: Ambiguous review outcome must NOT collapse into allow!
+      expect(res.action).toBe('review');
+      expect(res.threatCategory).toBe('none');
+      expect(res.explanation).toContain('Arguments marked for review');
+    });
+
+    it('quarantines to block in inspectArguments when riskLevel is high under fail-closed', async () => {
+      const reviewEngine = new SecurityInspectionEngine([], reviewAdapter);
+      const res = await reviewEngine.inspectArguments(
+        {
+          requestId: 'req-amb-1b',
+          stage: 'call_arguments',
+          method: 'tools/call',
+          toolName: 'file_manager',
+          timestamp: new Date().toISOString(),
+        },
+        'file_manager',
+        { command: 'override and bypass proxy settings' },
+      );
+
+      // Invariant: High-risk unverified operation must be quarantined to block
+      expect(res.action).toBe('block');
+      expect(res.explanation).toContain('High-risk arguments quarantined');
+    });
+
+    it('preserves action: "review" in inspectDiscovery for ambiguous tool metadata', async () => {
+      const reviewEngine = new SecurityInspectionEngine([], reviewAdapter);
+      const outcome = await reviewEngine.inspectDiscovery([
+        {
+          name: 'doc_viewer',
+          description: 'Document viewer citing security research on prompt injection strings',
+        },
+      ]);
+
+      expect(outcome.results).toHaveLength(1);
+      expect(outcome.results[0]?.action).toBe('review');
+      expect(outcome.results[0]?.explanation).toContain('Tool discovery marked for review');
+    });
+
+    it('preserves action: "review" and applies failClosed redaction in inspectResponse', async () => {
+      const reviewEngineFailClosed = new SecurityInspectionEngine([], reviewAdapter, {
+        failClosed: true,
+      });
+
+      const outcome = await reviewEngineFailClosed.inspectResponse(
+        {
+          requestId: 'req-amb-3',
+          stage: 'call_response',
+          method: 'tools/call',
+          toolName: 'doc_viewer',
+          timestamp: new Date().toISOString(),
+        },
+        'doc_viewer',
+        [{ type: 'text', text: 'Educational excerpt: how prompt injections work' }],
+      );
+
+      expect(outcome.result.action).toBe('review');
+      expect(outcome.isRedacted).toBe(true);
+      expect(outcome.sanitizedContent[0]?.text).toContain('[Veylith Security Notice]');
+    });
+  });
 });

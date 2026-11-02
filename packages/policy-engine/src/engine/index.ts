@@ -451,20 +451,20 @@ export class SecurityInspectionEngine {
         },
       );
 
-      let finalAction: PolicyAction = modelResult.flagged
-        ? modelResult.action
-        : this.defaultDecision;
-      let finalExplanation = modelResult.explanation;
-
-      // Fail-closed risk-based fallback: High-risk unverified operations MUST NOT pass when AI provider fails
-      if (
-        modelResult.action === 'review' &&
-        screenVerdict.type === 'ambiguous' &&
-        screenVerdict.riskLevel === 'high'
-      ) {
-        finalAction = 'block';
-        finalExplanation = `High-risk tool discovery quarantined: Security classifier unavailable while metadata exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`;
-      }
+      const finalAction: PolicyAction =
+        modelResult.action === 'review'
+          ? screenVerdict.riskLevel === 'high'
+            ? 'block'
+            : 'review'
+          : modelResult.flagged
+            ? modelResult.action
+            : this.defaultDecision;
+      const finalExplanation =
+        modelResult.action === 'review'
+          ? screenVerdict.riskLevel === 'high'
+            ? `High-risk tool discovery quarantined: Security classifier unavailable while metadata exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`
+            : `Tool discovery marked for review: ${modelResult.explanation}`
+          : modelResult.explanation;
 
       const res: SecurityInspectionResult = {
         id: randomUUID(),
@@ -491,7 +491,7 @@ export class SecurityInspectionEngine {
               ? 'deterministic'
               : 'live',
         confidence: modelResult.confidence,
-        isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
+        isConfirmedViolation: modelResult.flagged && finalAction === 'block',
       };
 
       if (modelResult.action !== 'review') this.cache.set(cacheKey, res);
@@ -697,18 +697,20 @@ export class SecurityInspectionEngine {
       },
     );
 
-    let finalAction: PolicyAction = modelResult.flagged ? modelResult.action : this.defaultDecision;
-    let finalExplanation = modelResult.explanation;
-
-    // Fail-closed risk-based fallback: High-risk unverified operations MUST NOT pass when AI provider fails
-    if (
-      modelResult.action === 'review' &&
-      screenVerdict.type === 'ambiguous' &&
-      screenVerdict.riskLevel === 'high'
-    ) {
-      finalAction = 'block';
-      finalExplanation = `High-risk arguments quarantined: Security classifier unavailable while arguments exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`;
-    }
+    const finalAction: PolicyAction =
+      modelResult.action === 'review'
+        ? screenVerdict.riskLevel === 'high'
+          ? 'block'
+          : 'review'
+        : modelResult.flagged
+          ? modelResult.action
+          : this.defaultDecision;
+    const finalExplanation =
+      modelResult.action === 'review'
+        ? screenVerdict.riskLevel === 'high'
+          ? `High-risk arguments quarantined: Security classifier unavailable while arguments exhibited high-risk signals (${screenVerdict.suspiciousSignals.join(', ')})`
+          : `Arguments marked for review: ${modelResult.explanation}`
+        : modelResult.explanation;
 
     const res: SecurityInspectionResult = {
       id: randomUUID(),
@@ -735,7 +737,7 @@ export class SecurityInspectionEngine {
             ? 'deterministic'
             : 'live',
       confidence: modelResult.confidence,
-      isConfirmedViolation: modelResult.flagged && modelResult.action === 'block',
+      isConfirmedViolation: modelResult.flagged && finalAction === 'block',
     };
 
     if (modelResult.action !== 'review') this.cache.set(cacheKey, res);

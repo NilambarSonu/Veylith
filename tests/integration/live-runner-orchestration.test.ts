@@ -126,6 +126,8 @@ globalThis.fetch = async (input, init) => {
     const repoRoot = path.resolve(__dirname, '../..');
     const scriptPath = path.resolve(repoRoot, 'scripts/security-lab/live.ts');
 
+    let stdout = '';
+    let stderr = '';
     const exitCode = await new Promise<number>((resolve, reject) => {
       const child = spawn(
         process.execPath,
@@ -157,8 +159,6 @@ globalThis.fetch = async (input, init) => {
         },
       );
 
-      let stdout = '';
-      let stderr = '';
       child.stdout.on('data', (d) => {
         stdout += d.toString();
       });

@@ -212,7 +212,9 @@ export class BoundaryInspector {
     });
     const action: PolicyAction =
       model.action === 'review'
-        ? (r.riskLevel === 'high' ? 'block' : 'review')
+        ? r.riskLevel === 'high'
+          ? 'block'
+          : 'review'
         : model.flagged
           ? model.action
           : this.defaultDecision;
@@ -223,7 +225,9 @@ export class BoundaryInspector {
       origin: model.mode === 'disabled' ? 'deterministic' : model.mode,
       threatCategory:
         action === 'block' && model.threatCategory === 'none'
-          ? (r.riskLevel === 'high' ? category : 'none')
+          ? r.riskLevel === 'high'
+            ? category
+            : 'none'
           : model.threatCategory,
       explanation:
         model.action === 'review'
