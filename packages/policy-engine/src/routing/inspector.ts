@@ -210,9 +210,9 @@ export class BoundaryInspector {
       target,
       stage: ctx.stage,
     });
-    const action =
-      model.action === 'review' && (this.failClosed || r.riskLevel === 'high')
-        ? 'block'
+    const action: PolicyAction =
+      model.action === 'review'
+        ? (r.riskLevel === 'high' ? 'block' : 'review')
         : model.flagged
           ? model.action
           : this.defaultDecision;
@@ -221,13 +221,16 @@ export class BoundaryInspector {
       routing: this.effectiveRoute(r.routing, model),
       action,
       origin: model.mode === 'disabled' ? 'deterministic' : model.mode,
-      threatCategory: action === 'block' ? category : model.threatCategory,
+      threatCategory:
+        action === 'block' && model.threatCategory === 'none'
+          ? (r.riskLevel === 'high' ? category : 'none')
+          : model.threatCategory,
       explanation:
         model.action === 'review'
           ? `Unverified content quarantined or marked for review: ${model.explanation}`
           : model.explanation,
       evidence: [],
-      isConfirmedViolation: model.flagged && model.action === 'block',
+      isConfirmedViolation: model.flagged && action === 'block',
       modelId: model.mode === 'disabled' ? undefined : this.adapter.model,
       tokenUsage: model.tokenUsage,
       confidence: model.confidence,
