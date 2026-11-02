@@ -25,13 +25,13 @@ async function checkFireworks() {
     const res = await fetch('https://api.fireworks.ai/inference/v1/models', { headers });
     results.modelsHttp = res.status;
     if (res.ok) {
-      const data = await res.json() as { data?: Array<{ id: string }> };
-      const modelList = Array.isArray(data.data) ? data.data.map(m => m.id) : [];
-      const hasMuseSpark = modelList.some(id => id.includes('muse-spark'));
+      const data = (await res.json()) as { data?: Array<{ id: string }> };
+      const modelList = Array.isArray(data.data) ? data.data.map((m) => m.id) : [];
+      const hasMuseSpark = modelList.some((id) => id.includes('muse-spark'));
       const exactMatch = modelList.includes('accounts/fireworks/models/muse-spark-open');
       results.hasMuseSparkModel = hasMuseSpark;
       results.exactModelFound = exactMatch;
-      results.matchingModels = modelList.filter(id => id.includes('muse'));
+      results.matchingModels = modelList.filter((id) => id.includes('muse'));
     } else {
       results.modelsError = await res.text();
     }
@@ -60,8 +60,7 @@ async function checkFireworks() {
   console.log(JSON.stringify(results, null, 2));
 }
 
-checkFireworks().catch(err => {
+checkFireworks().catch((err) => {
   console.error('Fatal check error:', err instanceof Error ? err.message : String(err));
   process.exit(1);
 });
-

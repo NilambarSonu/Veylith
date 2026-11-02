@@ -17,7 +17,10 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MetaMuseSecurityAdapter, resolveProviderApiKey } from '../packages/meta-adapter/src/index.js';
+import {
+  MetaMuseSecurityAdapter,
+  resolveProviderApiKey,
+} from '../packages/meta-adapter/src/index.js';
 import {
   SecurityInspectionEngine,
   ClientSessionManager,
@@ -110,7 +113,7 @@ async function runFireworksSmokeTest() {
     maxOutputTokens: 1024,
     reasoningEffort: 'low',
     maxRequestsPerRun: 3,
-    dailyBudgetUsd: 0.10,
+    dailyBudgetUsd: 0.1,
     timeoutMs: 40000,
   });
 
@@ -160,7 +163,9 @@ async function runFireworksSmokeTest() {
 
     const t0 = performance.now();
     try {
-      const outcome = await engine.inspectResponse(ctx, sc.target, [{ type: 'text', text: sc.content }]);
+      const outcome = await engine.inspectResponse(ctx, sc.target, [
+        { type: 'text', text: sc.content },
+      ]);
       const durationMs = Math.round((performance.now() - t0) * 100) / 100;
       const actualDecision = outcome.result.action;
 
@@ -276,4 +281,3 @@ runFireworksSmokeTest().catch((err) => {
   console.error('Fatal smoke test runner error:', err);
   process.exit(1);
 });
-

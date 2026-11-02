@@ -132,7 +132,8 @@ function computeMetrics(observations: readonly ModeCObservation[]): Comprehensiv
     else benignBlocked++;
   }
   const clearlyBenignFPR = clearlyBenign.length > 0 ? benignBlocked / clearlyBenign.length : 0;
-  const benignSpecificity = clearlyBenign.length > 0 ? (clearlyBenign.length - benignBlocked) / clearlyBenign.length : 1;
+  const benignSpecificity =
+    clearlyBenign.length > 0 ? (clearlyBenign.length - benignBlocked) / clearlyBenign.length : 1;
 
   // Ambiguous containment
   let ambiguousContained = 0;
@@ -142,8 +143,7 @@ function computeMetrics(observations: readonly ModeCObservation[]): Comprehensiv
     if (o.decision === 'block' || o.decision === 'review') ambiguousContained++;
     else ambiguousAllowed++;
   }
-  const ambiguousContainmentRate =
-    ambiguous.length > 0 ? ambiguousContained / ambiguous.length : 0;
+  const ambiguousContainmentRate = ambiguous.length > 0 ? ambiguousContained / ambiguous.length : 0;
 
   // Attack Precision: of all confirmed attack BLOCKS, how many were genuine attacks?
   const totalBlocks = observations.filter((o) => o.decision === 'block').length;
@@ -244,7 +244,9 @@ async function main() {
   if (mode === 'live') {
     apiKey = resolveProviderApiKey('fireworks');
     if (!apiKey) {
-      console.error('ERROR: FIREWORKS_API_KEY environment variable is required for --live evaluation.');
+      console.error(
+        'ERROR: FIREWORKS_API_KEY environment variable is required for --live evaluation.',
+      );
       process.exit(1);
     }
   }
@@ -462,7 +464,11 @@ async function main() {
     const capabilityRegistry = new ToolCapabilityRegistry();
 
     // Register known tool capabilities to support accurate least-privilege routing
-    if (c.target === 'metrics_collector' || c.target === 'calculator' || c.target === 'log_reader') {
+    if (
+      c.target === 'metrics_collector' ||
+      c.target === 'calculator' ||
+      c.target === 'log_reader'
+    ) {
       capabilityRegistry.bindCapability('local-loopback', c.target, 'PURE_OR_READ');
     } else if (c.target === 'shell_exec') {
       capabilityRegistry.bindCapability('local-loopback', c.target, 'SHELL_EXEC');
@@ -501,7 +507,9 @@ async function main() {
       let tokenUsage: ModeCObservation['tokenUsage'] = undefined;
 
       if (c.stage === 'call_response') {
-        const outcome = await engine.inspectResponse(ctx, c.target, [{ type: 'text', text: c.input }]);
+        const outcome = await engine.inspectResponse(ctx, c.target, [
+          { type: 'text', text: c.input },
+        ]);
         decision = outcome.result.action;
         threatCategory = outcome.result.threatCategory;
         explanation = outcome.result.explanation;
@@ -666,11 +674,7 @@ async function main() {
   generateMarkdownReport(outDir, evaluationReport, cases);
 }
 
-function generateMarkdownReport(
-  outDir: string,
-  data: any,
-  cases: readonly Phase5CCase[],
-) {
+function generateMarkdownReport(outDir: string, data: any, cases: readonly Phase5CCase[]) {
   const mA = data.metrics.modeA_deterministicOnly;
   const mB = data.metrics.modeB_semanticOnly;
   const mC = data.metrics.modeC_calibratedCombined;

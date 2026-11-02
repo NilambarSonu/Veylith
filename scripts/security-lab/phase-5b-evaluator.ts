@@ -74,7 +74,15 @@ interface MetricsSummary {
   readonly maxLatencyMs: number;
   readonly categoryBreakdown: Record<
     string,
-    { total: number; correct: number; accuracy: number; tp: number; tn: number; fp: number; fn: number }
+    {
+      total: number;
+      correct: number;
+      accuracy: number;
+      tp: number;
+      tn: number;
+      fp: number;
+      fn: number;
+    }
   >;
   readonly difficultyBreakdown: Record<
     string,
@@ -269,7 +277,9 @@ async function main() {
   }
 
   const modeAMetrics = calculateMetrics(modeAObservations);
-  console.log(`Mode A Completed: Accuracy ${(modeAMetrics.accuracy * 100).toFixed(1)}% | Precision ${modeAMetrics.precision ? (modeAMetrics.precision * 100).toFixed(1) + '%' : 'N/A'} | Recall ${(modeAMetrics.recall! * 100).toFixed(1)}% | FPR ${(modeAMetrics.falsePositiveRate * 100).toFixed(1)}%\n`);
+  console.log(
+    `Mode A Completed: Accuracy ${(modeAMetrics.accuracy * 100).toFixed(1)}% | Precision ${modeAMetrics.precision ? (modeAMetrics.precision * 100).toFixed(1) + '%' : 'N/A'} | Recall ${(modeAMetrics.recall! * 100).toFixed(1)}% | FPR ${(modeAMetrics.falsePositiveRate * 100).toFixed(1)}%\n`,
+  );
 
   // 2. Evaluate Mode B: Fireworks AI Semantic-Only
   console.log('>>> [2/3] Running Mode B: Fireworks AI Muse Spark Open Semantic-Only...');
@@ -296,7 +306,9 @@ async function main() {
 
   for (const [idx, c] of cases.entries()) {
     if (adapterB.tracker.getReport().estimatedCostUsd >= 19.5) {
-      console.warn(`[BUDGET CEILING] Approaching $20.00 ceiling. Halting Mode B at case ${idx + 1}.`);
+      console.warn(
+        `[BUDGET CEILING] Approaching $20.00 ceiling. Halting Mode B at case ${idx + 1}.`,
+      );
       budgetHalted = true;
       break;
     }
@@ -329,7 +341,9 @@ async function main() {
       });
 
       if ((idx + 1) % 10 === 0 || idx === cases.length - 1) {
-        console.log(`  [Mode B] Processed ${idx + 1}/${cases.length} cases (Spend: $${adapterB.tracker.getReport().estimatedCostUsd?.toFixed(4) ?? '0'} USD)`);
+        console.log(
+          `  [Mode B] Processed ${idx + 1}/${cases.length} cases (Spend: $${adapterB.tracker.getReport().estimatedCostUsd?.toFixed(4) ?? '0'} USD)`,
+        );
       }
     } catch (err) {
       const elapsed = Math.round((performance.now() - t0) * 100) / 100;
@@ -355,10 +369,14 @@ async function main() {
   }
 
   const modeBMetrics = calculateMetrics(modeBObservations);
-  console.log(`Mode B Completed: Accuracy ${(modeBMetrics.accuracy * 100).toFixed(1)}% | Precision ${modeBMetrics.precision ? (modeBMetrics.precision * 100).toFixed(1) + '%' : 'N/A'} | Recall ${(modeBMetrics.recall! * 100).toFixed(1)}% | FPR ${(modeBMetrics.falsePositiveRate * 100).toFixed(1)}%\n`);
+  console.log(
+    `Mode B Completed: Accuracy ${(modeBMetrics.accuracy * 100).toFixed(1)}% | Precision ${modeBMetrics.precision ? (modeBMetrics.precision * 100).toFixed(1) + '%' : 'N/A'} | Recall ${(modeBMetrics.recall! * 100).toFixed(1)}% | FPR ${(modeBMetrics.falsePositiveRate * 100).toFixed(1)}%\n`,
+  );
 
   // 3. Evaluate Mode C: Combined Veylith Policy Engine (Full Pipeline)
-  console.log('>>> [3/3] Running Mode C: Combined Veylith Policy Engine (Tier 1 + Tier 2 + Tier 3 Fireworks)...');
+  console.log(
+    '>>> [3/3] Running Mode C: Combined Veylith Policy Engine (Tier 1 + Tier 2 + Tier 3 Fireworks)...',
+  );
   const adapterC = new MetaMuseSecurityAdapter({
     provider: 'fireworks',
     mode,
@@ -390,7 +408,9 @@ async function main() {
 
   for (const [idx, c] of cases.entries()) {
     if (adapterC.tracker.getReport().estimatedCostUsd >= 19.5) {
-      console.warn(`[BUDGET CEILING] Approaching $20.00 ceiling. Halting Mode C at case ${idx + 1}.`);
+      console.warn(
+        `[BUDGET CEILING] Approaching $20.00 ceiling. Halting Mode C at case ${idx + 1}.`,
+      );
       budgetHalted = true;
       break;
     }
@@ -418,10 +438,10 @@ async function main() {
         explanation = outcome.result.explanation;
         tokenUsage = outcome.result.tokenUsage;
       } else if (c.stage === 'discovery') {
-        const outcome = await engine.inspectDiscovery(
-          [{ name: c.target, description: c.input }],
-          { clientIdentity: 'p5b-evaluator', serverId: 'local-loopback' },
-        );
+        const outcome = await engine.inspectDiscovery([{ name: c.target, description: c.input }], {
+          clientIdentity: 'p5b-evaluator',
+          serverId: 'local-loopback',
+        });
         decision = outcome.blockedTools.length > 0 ? 'block' : 'allow';
         threatCategory = outcome.results[0]?.threatCategory ?? 'none';
         explanation = outcome.results[0]?.explanation ?? '';
@@ -466,7 +486,9 @@ async function main() {
       });
 
       if ((idx + 1) % 10 === 0 || idx === cases.length - 1) {
-        console.log(`  [Mode C] Processed ${idx + 1}/${cases.length} cases (Spend: $${adapterC.tracker.getReport().estimatedCostUsd?.toFixed(4) ?? '0'} USD)`);
+        console.log(
+          `  [Mode C] Processed ${idx + 1}/${cases.length} cases (Spend: $${adapterC.tracker.getReport().estimatedCostUsd?.toFixed(4) ?? '0'} USD)`,
+        );
       }
     } catch (err) {
       const elapsed = Math.round((performance.now() - t0) * 100) / 100;
@@ -492,7 +514,9 @@ async function main() {
   }
 
   const modeCMetrics = calculateMetrics(modeCObservations);
-  console.log(`Mode C Completed: Accuracy ${(modeCMetrics.accuracy * 100).toFixed(1)}% | Precision ${modeCMetrics.precision ? (modeCMetrics.precision * 100).toFixed(1) + '%' : 'N/A'} | Recall ${(modeCMetrics.recall! * 100).toFixed(1)}% | FPR ${(modeCMetrics.falsePositiveRate * 100).toFixed(1)}%\n`);
+  console.log(
+    `Mode C Completed: Accuracy ${(modeCMetrics.accuracy * 100).toFixed(1)}% | Precision ${modeCMetrics.precision ? (modeCMetrics.precision * 100).toFixed(1) + '%' : 'N/A'} | Recall ${(modeCMetrics.recall! * 100).toFixed(1)}% | FPR ${(modeCMetrics.falsePositiveRate * 100).toFixed(1)}%\n`,
+  );
 
   // Cumulative Ledger
   const trackerB = adapterB.tracker.getReport();
@@ -556,11 +580,7 @@ async function main() {
   generateMarkdownReport(outDir, evaluationReport, cases);
 }
 
-function generateMarkdownReport(
-  outDir: string,
-  data: any,
-  cases: readonly Phase5Case[],
-) {
+function generateMarkdownReport(outDir: string, data: any, cases: readonly Phase5Case[]) {
   const mA = data.metrics.modeA_deterministicOnly;
   const mB = data.metrics.modeB_semanticOnly;
   const mC = data.metrics.modeC_combinedVeylith;
@@ -668,4 +688,3 @@ main().catch((err) => {
   console.error('Fatal evaluation error:', err);
   process.exit(1);
 });
-

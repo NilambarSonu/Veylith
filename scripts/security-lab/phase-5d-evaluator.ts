@@ -161,8 +161,7 @@ function calculateMetricsForMode(
     if (dec === 'block' || dec === 'review') ambiguousContained++;
     else ambiguousAllowed++;
   }
-  const ambiguousContainmentRate =
-    ambiguous.length > 0 ? ambiguousContained / ambiguous.length : 0;
+  const ambiguousContainmentRate = ambiguous.length > 0 ? ambiguousContained / ambiguous.length : 0;
 
   const totalBlocks = observations.filter((o) => o[modeKey].decision === 'block').length;
   const confirmedAttackPrecision = totalBlocks > 0 ? attacksBlocked / totalBlocks : 1.0;
@@ -346,7 +345,11 @@ async function main() {
     const capabilityRegistry = new ToolCapabilityRegistry();
 
     // Register known tool capabilities
-    if (c.target === 'metrics_collector' || c.target === 'calculator' || c.target === 'log_reader') {
+    if (
+      c.target === 'metrics_collector' ||
+      c.target === 'calculator' ||
+      c.target === 'log_reader'
+    ) {
       capabilityRegistry.bindCapability('local-loopback', c.target, 'PURE_OR_READ');
     } else if (c.target === 'shell_exec') {
       capabilityRegistry.bindCapability('local-loopback', c.target, 'SHELL_EXEC');
@@ -393,7 +396,9 @@ async function main() {
 
     try {
       if (c.stage === 'call_response') {
-        const outcome = await engine.inspectResponse(ctx, c.target, [{ type: 'text', text: c.input }]);
+        const outcome = await engine.inspectResponse(ctx, c.target, [
+          { type: 'text', text: c.input },
+        ]);
         decC = outcome.result.action;
         expC = outcome.result.explanation;
         catC = outcome.result.threatCategory;
@@ -412,7 +417,10 @@ async function main() {
           flaggedB = outcome.result.isConfirmedViolation;
         }
 
-        if (outcome.result.explanation.includes('Fireworks AI outage') || outcome.result.explanation.includes('HTTP 503')) {
+        if (
+          outcome.result.explanation.includes('Fireworks AI outage') ||
+          outcome.result.explanation.includes('HTTP 503')
+        ) {
           isApiError = true;
           decC = 'review';
           decB = 'api_error';
@@ -453,7 +461,10 @@ async function main() {
           catB = catC;
         }
 
-        if (outcome.explanation.includes('Fireworks AI outage') || outcome.explanation.includes('HTTP 503')) {
+        if (
+          outcome.explanation.includes('Fireworks AI outage') ||
+          outcome.explanation.includes('HTTP 503')
+        ) {
           isApiError = true;
           decC = 'review';
           decB = 'api_error';
@@ -558,16 +569,26 @@ async function main() {
   console.log(`Total Tokens Billed   : ${trackerReport.totalTokens}`);
   console.log(`Cumulative Spend      : $${trackerReport.estimatedCostUsd?.toFixed(6) ?? '0'} USD`);
   console.log(`Hard Budget Cap       : $2.000000 USD`);
-  console.log(`Remaining Budget      : $${(2.0 - (trackerReport.estimatedCostUsd ?? 0)).toFixed(6)} USD`);
+  console.log(
+    `Remaining Budget      : $${(2.0 - (trackerReport.estimatedCostUsd ?? 0)).toFixed(6)} USD`,
+  );
   console.log(`Budget Ceiling Halt   : ${budgetHalted ? 'YES' : 'NO'}`);
   console.log('================================================================\n');
 
   console.log('----------------------------------------------------------------');
   console.log('FINAL VALIDATION SUMMARY (Mode C: Calibrated Combined Engine):');
-  console.log(`Attack Recall         : ${(modeCMetrics.attackRecall * 100).toFixed(1)}% (${modeCMetrics.attacksBlocked + modeCMetrics.attacksQuarantined}/50)`);
-  console.log(`Clearly-Benign FPR    : ${(modeCMetrics.clearlyBenignFPR * 100).toFixed(1)}% (${modeCMetrics.benignBlocked}/35)`);
-  console.log(`Ambiguous Containment : ${(modeCMetrics.ambiguousContainmentRate * 100).toFixed(1)}% (${modeCMetrics.ambiguousContained}/15)`);
-  console.log(`Attack Precision      : ${(modeCMetrics.confirmedAttackPrecision * 100).toFixed(1)}%`);
+  console.log(
+    `Attack Recall         : ${(modeCMetrics.attackRecall * 100).toFixed(1)}% (${modeCMetrics.attacksBlocked + modeCMetrics.attacksQuarantined}/50)`,
+  );
+  console.log(
+    `Clearly-Benign FPR    : ${(modeCMetrics.clearlyBenignFPR * 100).toFixed(1)}% (${modeCMetrics.benignBlocked}/35)`,
+  );
+  console.log(
+    `Ambiguous Containment : ${(modeCMetrics.ambiguousContainmentRate * 100).toFixed(1)}% (${modeCMetrics.ambiguousContained}/15)`,
+  );
+  console.log(
+    `Attack Precision      : ${(modeCMetrics.confirmedAttackPrecision * 100).toFixed(1)}%`,
+  );
   console.log(`F1 Score              : ${(modeCMetrics.f1Score * 100).toFixed(1)}%`);
   console.log(`Overall Accuracy      : ${(modeCMetrics.overallAccuracy * 100).toFixed(1)}%`);
   console.log(`p50 Latency           : ${modeCMetrics.p50LatencyMs.toFixed(1)} ms`);
@@ -728,4 +749,3 @@ main().catch((err) => {
   console.error('Fatal evaluation runner error:', err);
   process.exit(1);
 });
-

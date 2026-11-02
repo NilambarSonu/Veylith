@@ -18,7 +18,10 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MetaMuseSecurityAdapter, resolveProviderApiKey } from '../packages/meta-adapter/src/index.js';
+import {
+  MetaMuseSecurityAdapter,
+  resolveProviderApiKey,
+} from '../packages/meta-adapter/src/index.js';
 import {
   SecurityInspectionEngine,
   ClientSessionManager,
@@ -127,7 +130,6 @@ async function runSmokeTest() {
 
     const tStart = performance.now();
     let decision: 'allow' | 'block' = 'allow';
-    let rawResult: unknown = null;
     let modelResultDetails: unknown = null;
 
     try {
@@ -143,7 +145,6 @@ async function runSmokeTest() {
           [{ type: 'text', text: testCase.content }],
         );
         decision = outcome.result.action === 'block' ? 'block' : 'allow';
-        rawResult = outcome.result;
         modelResultDetails = {
           flagged: outcome.result.action === 'block',
           threatCategory: outcome.result.threatCategory,
@@ -158,7 +159,6 @@ async function runSmokeTest() {
           { clientIdentity: 'smoke-test-client', serverId: 'local-loopback' },
         );
         decision = outcome.blockedTools.length > 0 ? 'block' : 'allow';
-        rawResult = outcome.results[0];
         modelResultDetails = {
           blockedCount: outcome.blockedTools.length,
           cleanCount: outcome.cleanTools.length,
@@ -172,7 +172,9 @@ async function runSmokeTest() {
       const passed = decision === testCase.expectedDecision;
       if (!passed) allPassed = false;
 
-      console.log(`  Outcome  : ${decision.toUpperCase()} ${passed ? '✓ (PASSED)' : '✗ (MISMATCH)'}`);
+      console.log(
+        `  Outcome  : ${decision.toUpperCase()} ${passed ? '✓ (PASSED)' : '✗ (MISMATCH)'}`,
+      );
       console.log(`  Latency  : ${elapsedMs} ms`);
 
       results.push({
