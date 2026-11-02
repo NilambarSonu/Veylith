@@ -137,6 +137,14 @@ describe('Veylith Research Dashboard — Evidence Loader & Schema Verification',
     expect(first.caseId).toBeDefined();
   });
 
+  it('handles missing audit evidence sources gracefully and reports auditUnavailable', () => {
+    const res = loader.getAuditRecords({ source: 'nonexistent-source' });
+    expect(res.records).toEqual([]);
+    expect(res.total).toBe(0);
+    expect(res.chainVerified).toBe(false);
+    expect(res.auditUnavailable).toBe(true);
+  });
+
   describe('Cryptographic SHA-256 Audit Chain Verification', () => {
     it('guarantees public getCaseAuditTrail always redacts session IDs and sensitive fields', () => {
       const publicRecords = loader.getCaseAuditTrail('VEY-2E-E1-01');

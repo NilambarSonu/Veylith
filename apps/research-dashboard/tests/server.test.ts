@@ -256,6 +256,15 @@ describe('Veylith Research Dashboard — Local HTTP Server & Read-Only API', () 
     }
   });
 
+  it('GET /api/audit handles missing evidence sources gracefully without throwing', async () => {
+    const res = await makeRequest('GET', '/api/audit?source=nonexistent-split');
+    expect(res.statusCode).toBe(200);
+    const json = res.json!;
+    expect(json.records).toEqual([]);
+    expect(json.chainVerified).toBe(false);
+    expect(json.auditUnavailable).toBe(true);
+  });
+
   it('GET /api/findings returns 200 with the 8 known unresolved issues and 6 locked live candidates', async () => {
     const res = await makeRequest('GET', '/api/findings');
     expect(res.statusCode).toBe(200);

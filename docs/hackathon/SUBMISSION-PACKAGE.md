@@ -160,7 +160,7 @@ pnpm build
 pnpm typecheck
 pnpm security:eval:typecheck
 
-# 5. Execute full workspace test suite (400 tests, 43 files)
+# 5. Execute full workspace test suite (402 tests, 43 files)
 pnpm test:all
 
 # 6. Launch Research Dashboard (local loopback, read-only)
@@ -217,7 +217,7 @@ Veylith avoids marketing claims of "100% prompt injection detection" by providin
 ### Full Workspace Test Suite
 
 - **Test Files:** 43 passed (100%)
-- **Tests Passed:** **400 passed (400)** (100%)
+- **Tests Passed:** **402 passed (402)** (100%)
 - **Test Failures:** 0 failures
 - **Execution Time:** ~27 seconds
 

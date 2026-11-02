@@ -536,54 +536,154 @@ export class EvidenceLoader {
     let targetFile = '';
 
     if (sourceKey === 'phase-2f-deterministic-only') {
-      targetFile = path.join(
-        this.config.labEvidenceDir,
-        'phase-2f',
-        'after',
-        'development',
-        'development-deterministic-only.progress.jsonl',
-      );
+      const candidates = [
+        path.join(
+          this.config.labEvidenceDir,
+          'phase-2f',
+          'after',
+          'development',
+          'development-deterministic-only.progress.jsonl',
+        ),
+        path.join(
+          this.config.labEvidenceDir,
+          'results',
+          'development-deterministic-only.progress.jsonl',
+        ),
+        path.join(
+          this.config.labEvidenceDir,
+          'phase-2f',
+          'evidence',
+          'development-deterministic-only.json.gz',
+        ),
+        path.join(
+          this.config.labEvidenceDir,
+          'evidence',
+          'final-run',
+          'development-deterministic-only.json.gz',
+        ),
+      ];
+      targetFile = candidates.find((f) => fs.existsSync(f)) ?? '';
     } else if (sourceKey === 'phase-2e-holdout') {
-      targetFile = path.join(
-        this.config.labEvidenceDir,
-        'results',
-        'holdout-mock-semantic.progress.jsonl',
-      );
+      const candidates = [
+        path.join(this.config.labEvidenceDir, 'results', 'holdout-mock-semantic.progress.jsonl'),
+        path.join(
+          this.config.labEvidenceDir,
+          'evidence',
+          'final-run',
+          'holdout-mock-semantic.json.gz',
+        ),
+        path.join(
+          this.config.labEvidenceDir,
+          'evidence',
+          'final-run',
+          'holdout-deterministic-only.json.gz',
+        ),
+      ];
+      targetFile = candidates.find((f) => fs.existsSync(f)) ?? '';
+    } else if (sourceKey === 'compat-results') {
+      const candidates = [path.join(this.config.labEvidenceDir, 'compat-results', 'results.json')];
+      targetFile = candidates.find((f) => fs.existsSync(f)) ?? '';
+    } else if (sourceKey === 'phase-2f-mock-semantic' || !sourceKey) {
+      // Default: phase-2f-mock-semantic
+      const candidates = [
+        path.join(
+          this.config.labEvidenceDir,
+          'phase-2f',
+          'after',
+          'development',
+          'development-mock-semantic.progress.jsonl',
+        ),
+        path.join(
+          this.config.labEvidenceDir,
+          'results',
+          'development-mock-semantic.progress.jsonl',
+        ),
+        path.join(
+          this.config.labEvidenceDir,
+          'phase-2f',
+          'evidence',
+          'development-mock-semantic.json.gz',
+        ),
+        path.join(
+          this.config.labEvidenceDir,
+          'evidence',
+          'final-run',
+          'development-mock-semantic.json.gz',
+        ),
+      ];
+      targetFile = candidates.find((f) => fs.existsSync(f)) ?? '';
     } else {
-      targetFile = path.join(
-        this.config.labEvidenceDir,
-        'phase-2f',
-        'after',
-        'development',
-        'development-mock-semantic.progress.jsonl',
-      );
+      // Unknown or unsupported source key
+      targetFile = '';
     }
 
-    if (!fs.existsSync(targetFile)) {
-      const fallback = path.join(
-        this.config.labEvidenceDir,
-        'results',
-        'development-mock-semantic.progress.jsonl',
-      );
-      if (fs.existsSync(fallback)) {
-        targetFile = fallback;
-      }
-    }
-
-    if (!fs.existsSync(targetFile)) {
+    if (!targetFile) {
       return {
         allRecords: [],
         chainVerified: false,
-        verificationError: `Evidence source file not found: ${targetFile}`,
+        verificationError: `Evidence source file not found for source '${sourceKey}'.`,
         totalChainsEvaluated: 0,
         validChains: 0,
         errorState: true,
-        errorMessage: `Evidence source file not found: ${targetFile}`,
+        errorMessage: `Audit evidence unavailable for source '${sourceKey}'. No local progress logs or checked-in evidence found.`,
       };
     }
 
-    const rawContent = fs.readFileSync(targetFile, 'utf8');
-    const lines = rawContent.split('\n').filter((l) => l.trim().length > 0);
+    const items: Array<{ id: string; evidence?: { audit?: unknown[] }; audit?: unknown[] }> = [];
+
+    if (targetFile.endsWith('.gz')) {
+      try {
+        const decompressed = zlib.gunzipSync(fs.readFileSync(targetFile)).toString('utf8');
+        const data = JSON.parse(decompressed);
+        const parsedItems = Array.isArray(data.observations)
+          ? data.observations
+          : Array.isArray(data.outputs)
+            ? data.outputs
+            : [];
+        items.push(...parsedItems);
+      } catch (err) {
+        return {
+          allRecords: [],
+          chainVerified: false,
+          verificationError: `Failed to decompress and parse evidence file: ${err instanceof Error ? err.message : String(err)}`,
+          totalChainsEvaluated: 0,
+          validChains: 0,
+          errorState: true,
+          errorMessage: `Failed to read evidence source: ${targetFile}`,
+        };
+      }
+    } else if (targetFile.endsWith('.json')) {
+      try {
+        const data = JSON.parse(fs.readFileSync(targetFile, 'utf8'));
+        const parsedItems = Array.isArray(data.outputs)
+          ? data.outputs
+          : Array.isArray(data.observations)
+            ? data.observations
+            : [];
+        items.push(...parsedItems);
+      } catch (err) {
+        return {
+          allRecords: [],
+          chainVerified: false,
+          verificationError: `Failed to parse evidence file: ${err instanceof Error ? err.message : String(err)}`,
+          totalChainsEvaluated: 0,
+          validChains: 0,
+          errorState: true,
+          errorMessage: `Failed to read evidence source: ${targetFile}`,
+        };
+      }
+    } else {
+      const rawContent = fs.readFileSync(targetFile, 'utf8');
+      const lines = rawContent.split('\n').filter((l) => l.trim().length > 0);
+      for (const line of lines) {
+        try {
+          items.push(JSON.parse(line));
+        } catch {
+          // Skip malformed individual line in progress file
+        }
+      }
+    }
+
     const allRecords: AuditRecord[] = [];
     let totalChainsEvaluated = 0;
     let validChains = 0;
@@ -592,50 +692,53 @@ export class EvidenceLoader {
     let tamperedCaseId: string | undefined;
     let tamperedIndex: number | undefined;
 
-    for (const line of lines) {
-      try {
-        const item = JSON.parse(line);
-        if (item.evidence && Array.isArray(item.evidence.audit)) {
-          totalChainsEvaluated++;
-          const caseAuditRecords: AuditRecord[] = [];
-          for (const rec of item.evidence.audit) {
+    for (const item of items) {
+      const auditList = item.evidence?.audit ?? item.audit;
+      if (Array.isArray(auditList)) {
+        totalChainsEvaluated++;
+        const caseAuditRecords: AuditRecord[] = [];
+        for (const rec of auditList) {
+          if (typeof rec === 'object' && rec !== null) {
             const parsed = AuditRecordSchema.safeParse({
-              ...rec,
+              ...(rec as Record<string, unknown>),
               caseId: item.id,
             });
             if (parsed.success) {
               caseAuditRecords.push(parsed.data);
             }
           }
-
-          // Cryptographic verification of this case's chain
-          const check = verifyAuditChain(caseAuditRecords);
-          if (!check.valid) {
-            chainVerified = false;
-            if (!verificationError) {
-              verificationError = `Chain verification failed for case ${item.id}: ${check.error}`;
-              tamperedCaseId = item.id;
-              tamperedIndex = check.tamperedIndex;
-            }
-          } else {
-            validChains++;
-          }
-
-          allRecords.push(...caseAuditRecords);
         }
-      } catch {
-        // Skip malformed individual line in progress file
+
+        // Cryptographic verification of this case's chain
+        const check = verifyAuditChain(caseAuditRecords);
+        if (!check.valid) {
+          chainVerified = false;
+          if (!verificationError) {
+            verificationError = `Chain verification failed for case ${item.id}: ${check.error}`;
+            tamperedCaseId = item.id;
+            tamperedIndex = check.tamperedIndex;
+          }
+        } else {
+          validChains++;
+        }
+
+        allRecords.push(...caseAuditRecords);
       }
     }
 
     return {
       allRecords,
-      chainVerified,
+      chainVerified: totalChainsEvaluated > 0 ? chainVerified : false,
       verificationError,
       totalChainsEvaluated,
       validChains,
       tamperedCaseId,
       tamperedIndex,
+      errorState: totalChainsEvaluated === 0,
+      errorMessage:
+        totalChainsEvaluated === 0
+          ? `No audit records found in evidence source: ${targetFile}`
+          : undefined,
     };
   }
 
@@ -663,6 +766,7 @@ export class EvidenceLoader {
     chainVerified: boolean;
     verificationError?: string;
     chainVerification: ChainVerificationSummary;
+    auditUnavailable?: boolean;
   } {
     const sourceKey = options.source ?? 'phase-2f-mock-semantic';
     const loaded = this.loadAuditDataFromSource(sourceKey);
@@ -676,6 +780,7 @@ export class EvidenceLoader {
         source: sourceKey,
         chainVerified: false,
         verificationError: loaded.errorMessage,
+        auditUnavailable: true,
         chainVerification: {
           verified: false,
           structure: 'multi-case-observation-log',

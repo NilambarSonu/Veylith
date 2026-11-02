@@ -240,17 +240,41 @@ export class DemoEnvironment {
       this.client = null;
     }
 
-    const kill = (proc: ChildProcess | null) => {
-      if (!proc || proc.killed) return;
-      try {
-        proc.kill('SIGTERM');
-      } catch {
-        // ignore
-      }
+    const stopProcess = async (proc: ChildProcess | null): Promise<void> => {
+      if (!proc || proc.killed || proc.exitCode !== null) return;
+      return new Promise<void>((resolve) => {
+        let settled = false;
+        const done = () => {
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
+        };
+
+        const timer = setTimeout(() => {
+          try {
+            proc.kill('SIGKILL');
+          } catch {
+            // ignore
+          }
+          done();
+        }, 2000);
+
+        proc.once('exit', () => {
+          clearTimeout(timer);
+          done();
+        });
+
+        try {
+          proc.kill('SIGTERM');
+        } catch {
+          clearTimeout(timer);
+          done();
+        }
+      });
     };
 
-    kill(this.gatewayProc);
-    kill(this.serverProc);
+    await Promise.all([stopProcess(this.gatewayProc), stopProcess(this.serverProc)]);
     this.gatewayProc = null;
     this.serverProc = null;
     this.running = false;

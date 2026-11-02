@@ -18,6 +18,7 @@ import { describe, it, expect } from 'vitest';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as path from 'node:path';
+import * as net from 'node:net';
 import {
   SCENARIOS,
   findScenario,
@@ -31,10 +32,36 @@ import {
 
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = path.resolve(__dirname, '../..');
-const TEST_PORTS = {
-  DEMO_BENIGN_PORT: '19894',
-  DEMO_GATEWAY_PORT: '19893',
-};
+
+async function getAvailablePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const s = net.createServer();
+    s.unref();
+    s.listen(0, '127.0.0.1', () => {
+      const port = (s.address() as net.AddressInfo).port;
+      s.close((err) => {
+        if (err) reject(err);
+        else resolve(port);
+      });
+    });
+    s.on('error', reject);
+  });
+}
+
+async function getDynamicTestPorts(): Promise<{
+  DEMO_BENIGN_PORT: string;
+  DEMO_GATEWAY_PORT: string;
+}> {
+  const p1 = await getAvailablePort();
+  let p2 = await getAvailablePort();
+  while (p2 === p1) {
+    p2 = await getAvailablePort();
+  }
+  return {
+    DEMO_BENIGN_PORT: String(p1),
+    DEMO_GATEWAY_PORT: String(p2),
+  };
+}
 
 describe('Interactive Demo Experience (pnpm demo)', () => {
   // ---------------------------------------------------------------------------
@@ -197,6 +224,7 @@ describe('Interactive Demo Experience (pnpm demo)', () => {
   // 6. NO_COLOR Disables ANSI Escape Sequences
   // ---------------------------------------------------------------------------
   it('disables ANSI escape codes when NO_COLOR=1 or --no-color is set', async () => {
+    const testPorts = await getDynamicTestPorts();
     const { stdout } = await execFileAsync(
       'npx',
       ['tsx', 'scripts/demo.ts', '--scenario=A', '--no-color'],
@@ -204,7 +232,7 @@ describe('Interactive Demo Experience (pnpm demo)', () => {
         cwd: REPO_ROOT,
         env: {
           ...process.env,
-          ...TEST_PORTS,
+          ...testPorts,
           NO_COLOR: '1',
         },
       },
@@ -224,11 +252,12 @@ describe('Interactive Demo Experience (pnpm demo)', () => {
   // 7. Non-TTY Environment Executes All Scenarios Deterministically
   // ---------------------------------------------------------------------------
   it('automatically executes all scenarios when run in non-TTY environment without args', async () => {
+    const testPorts = await getDynamicTestPorts();
     const proc = spawn('npx', ['tsx', 'scripts/demo.ts'], {
       cwd: REPO_ROOT,
       env: {
         ...process.env,
-        ...TEST_PORTS,
+        ...testPorts,
         NO_COLOR: '1',
       },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -259,11 +288,12 @@ describe('Interactive Demo Experience (pnpm demo)', () => {
   // 8. Deterministic Batch Mode (--all) Runs All Scenarios and Verifies Decisions
   // ---------------------------------------------------------------------------
   it('executes --all deterministically and reports accurate policy decisions', async () => {
+    const testPorts = await getDynamicTestPorts();
     const { stdout } = await execFileAsync('npx', ['tsx', 'scripts/demo.ts', '--all'], {
       cwd: REPO_ROOT,
       env: {
         ...process.env,
-        ...TEST_PORTS,
+        ...testPorts,
         NO_COLOR: '1',
       },
     });
@@ -303,11 +333,12 @@ describe('Interactive Demo Experience (pnpm demo)', () => {
   // 9. Interactive Mode Menu Handling (Invalid Option & Clean Exit)
   // ---------------------------------------------------------------------------
   it('handles invalid menu selection and cleanly exits upon q in interactive mode', async () => {
+    const testPorts = await getDynamicTestPorts();
     const proc = spawn('npx', ['tsx', 'scripts/demo.ts', '--interactive'], {
       cwd: REPO_ROOT,
       env: {
         ...process.env,
-        ...TEST_PORTS,
+        ...testPorts,
         NO_COLOR: '1',
       },
       stdio: ['pipe', 'pipe', 'pipe'],

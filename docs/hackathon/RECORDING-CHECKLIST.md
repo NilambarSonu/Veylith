@@ -137,7 +137,7 @@ If an interactive demo session hangs waiting for stdin:
 
 ## 6. Pre-Recording Final Checklist
 
-- [ ] `pnpm test:all` verified 100% passing (400/400 tests, 43 files).
+- [ ] `pnpm test:all` verified 100% passing (402/402 tests, 43 files).
 - [ ] `verify-browser-cdp.ts` verified 100% passing (12/12 steps).
 - [ ] No git unstaged changes in historical canary evidence (`security-lab/compat-results/*`).
 - [ ] Live candidate reserve file (`security-lab/v1/live-reserve.json`) remains completely unexecuted.

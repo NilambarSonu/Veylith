@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![MCP Protocol](https://img.shields.io/badge/MCP_Protocol-2026--07--28-green.svg)](https://modelcontextprotocol.io)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict_ESM-3178C6.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-400%20passing-brightgreen.svg)](<>)
+[![Tests](https://img.shields.io/badge/Tests-402%20passing-brightgreen.svg)](<>)
 [![Track](https://img.shields.io/badge/Meta_Hackathon-Startup_Track-purple.svg)](<>)
 
 ---
@@ -28,22 +28,22 @@ As autonomous agents connect to corporate infrastructure via MCP, critical attac
 ```mermaid
 mindmap
   root((MCP Security Threats))
-    Tool Discovery Poisoning
-      Hidden instructions in tool descriptions
-      Role spoofing (impersonating SYSTEM / admin)
-      Coercive credential mandates
-    Dangerous Invocation Arguments
-      Destructive shell commands (rm -rf, mkfs, fork bombs)
-      Destructive SQL operations (DROP TABLE, TRUNCATE)
-      Path traversal attempts (../../etc/shadow, ~/.ssh)
-      Exfiltration endpoints (private IP SSRF, webhook sinks)
-    Malicious Tool Return Content
-      Indirect prompt injection in retrieved document text
-      Instruction hijacking embedded in search snippets
-      Adversarial directives hidden in API payloads
-    Credential & Secret Leakage
-      API keys (sk-live-..., Bearer JWTs) in arguments
-      Accidental secret leakage in tool output streams
+    ["Tool Discovery Poisoning"]
+      ["Hidden instructions in tool descriptions"]
+      ["Role spoofing (impersonating SYSTEM / admin)"]
+      ["Coercive credential mandates"]
+    ["Dangerous Invocation Arguments"]
+      ["Destructive shell commands (rm -rf, mkfs, fork bombs)"]
+      ["Destructive SQL operations (DROP TABLE, TRUNCATE)"]
+      ["Path traversal attempts (../../etc/shadow, ~/.ssh)"]
+      ["Exfiltration endpoints (private IP SSRF, webhook sinks)"]
+    ["Malicious Tool Return Content"]
+      ["Indirect prompt injection in retrieved document text"]
+      ["Instruction hijacking embedded in search snippets"]
+      ["Adversarial directives hidden in API payloads"]
+    ["Credential & Secret Leakage"]
+      ["API keys (sk-live-..., Bearer JWTs) in arguments"]
+      ["Accidental secret leakage in tool output streams"]
 ```
 
 1. **Tool Description Poisoning (`tools/list`)**: Malicious or compromised MCP servers inject hidden natural-language instructions into tool schemas, tricking the agent into executing secondary unauthorized tools or exfiltrating private data.
@@ -367,7 +367,7 @@ _Inspect the evaluation matrix, view the tamper-evident audit log chain, and rev
 ### 4. Run Automated Test Suites
 
 ```bash
-# Run all 400 automated tests across 43 test files
+# Run all 402 automated tests across 43 test files
 pnpm test:all
 
 # Run strict TypeScript typecheck across all 8 workspace packages
@@ -471,7 +471,7 @@ pnpm test:all
 **Latest Verified Test Results:**
 
 - **43 test files passed (100%)**
-- **400 tests passed (100%)**
+- **402 tests passed (100%)**
 - **0 test failures**
 - Strict ESM TypeScript typechecking passing across all 8 workspace projects (`pnpm typecheck`).
 - Clean build across all packages (`pnpm build`).
