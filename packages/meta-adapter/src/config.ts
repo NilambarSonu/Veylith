@@ -10,6 +10,7 @@
 import type { MetaAiMode } from './types.js';
 import {
   type ModelProvider,
+  type ProviderPricing,
   APPROVED_PROVIDERS,
   resolveProviderApiKey,
   validateProviderConfiguration,
@@ -28,6 +29,8 @@ export interface MetaAdapterConfig {
   readonly maxRequestsPerRun: number;
   readonly reasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
   readonly allowUnverifiedPricing?: boolean;
+  readonly pricingVerified?: boolean;
+  readonly pricing?: ProviderPricing;
 }
 
 export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdapterConfig {
@@ -125,6 +128,9 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
     validateProviderConfiguration(provider, endpoint, model);
   }
 
+  const pricingVerified = overrides?.pricingVerified ?? def.pricingVerified;
+  const pricing = overrides?.pricing ?? def.pricing;
+
   return {
     provider,
     endpoint,
@@ -138,5 +144,7 @@ export function loadMetaConfig(overrides?: Partial<MetaAdapterConfig>): MetaAdap
     maxRequestsPerRun: isNaN(maxRequestsPerRun) ? 10 : maxRequestsPerRun,
     reasoningEffort,
     allowUnverifiedPricing,
+    pricingVerified,
+    pricing,
   };
 }

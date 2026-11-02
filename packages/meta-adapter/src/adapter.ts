@@ -228,13 +228,15 @@ export class MetaMuseSecurityAdapter implements MetaAdapter {
   constructor(config?: Partial<MetaAdapterConfig>) {
     this.config = loadMetaConfig(config);
     const def = APPROVED_PROVIDERS[this.config.provider];
+    const pricingVerified = this.config.pricingVerified ?? def?.pricingVerified ?? true;
+    const pricing = this.config.pricing ?? def?.pricing;
     this.tracker = new UsageTracker({
       maxRequestsPerRun: this.config.maxRequestsPerRun,
       dailyBudgetUsd: this.config.dailyBudgetUsd,
-      pricingVerified: def?.pricingVerified ?? true,
-      standardInputPriceUsd: def?.pricing?.standardInputPriceUsd,
-      cachedInputPriceUsd: def?.pricing?.cachedInputPriceUsd,
-      outputTokenPriceUsd: def?.pricing?.outputTokenPriceUsd,
+      pricingVerified,
+      standardInputPriceUsd: pricing?.standardInputPriceUsd,
+      cachedInputPriceUsd: pricing?.cachedInputPriceUsd,
+      outputTokenPriceUsd: pricing?.outputTokenPriceUsd,
       allowUnverifiedPricing: this.config.allowUnverifiedPricing ?? false,
     });
   }
@@ -476,6 +478,8 @@ ${sanitizedUntrustedContent}
 </untrusted_content_${boundaryNonce}>`;
 
     const isChatCompletions = def.protocol === 'openai-chat-completions';
+    const chatReasoningEffort =
+      this.config.reasoningEffort === 'minimal' ? 'low' : this.config.reasoningEffort;
 
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
@@ -487,7 +491,8 @@ ${sanitizedUntrustedContent}
             { role: 'user', content: userPrompt },
           ],
           response_format: { type: 'json_object' },
-          max_tokens: this.config.maxOutputTokens,
+          max_tokens: Math.max(1024, this.config.maxOutputTokens),
+          reasoning_effort: chatReasoningEffort,
           temperature: 0.0,
         })
       : JSON.stringify({
