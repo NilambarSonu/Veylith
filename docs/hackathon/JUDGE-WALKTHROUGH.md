@@ -11,13 +11,13 @@
 
 ## Presentation Overview & Time Allocation
 
-| Timestamp       | View / Screen                                | Primary Objective                                                                                             | Key Disclosures                                                                              |
-| :-------------- | :------------------------------------------- | :------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------- |
-| **0:00 – 0:30** | **Overview** (`#overview`)                   | Explain MCP security problem, gateway architecture, 3 inspection boundaries, and 3 decision outcomes.         | Non-production research prototype; local loopback binding.                                   |
-| **0:30 – 1:15** | **Terminal Demo** (`pnpm demo`)              | Execute 4 live scenarios: safe echo, discovery poisoning, indirect prompt injection, and dangerous arguments. | 100% offline execution; zero paid external API spend.                                        |
-| **1:15 – 2:00** | **Evaluation Lab** (`#evaluation-lab`)       | Walk through Phase 2A (68 samples), Phase 2E (56 cases), and Phase 2F (72 cases) with exact denominators.     | Phase 2A is in-repo validation fixture, not blind holdout; operational exclusions explained. |
-| **2:00 – 2:35** | **Audit Explorer** (`#audit-explorer`)       | Demonstrate SHA-256 canonical JSON hash chain, secret masking, and detail drawer.                             | Local chain validates in-situ integrity; not an external Rekor notary ledger.                |
-| **2:35 – 3:00** | **Security Findings** (`#security-findings`) | Review 8 open findings, 6 locked live candidates, and single compatibility canary.                            | Canary tested transport/cost only; 6 live candidates remain untouched.                       |
+| Timestamp       | View / Screen                                | Primary Objective                                                                                                  | Key Disclosures                                                                                                 |
+| :-------------- | :------------------------------------------- | :----------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------- |
+| **0:00 – 0:30** | **Overview** (`#overview`)                   | Explain MCP security problem, gateway architecture, 3 inspection boundaries, and 3 decision outcomes.              | Non-production research prototype; local loopback binding.                                                      |
+| **0:30 – 1:15** | **Terminal Demo** (`pnpm demo`)              | Execute 4 live scenarios: safe echo, discovery poisoning, indirect prompt injection, and dangerous arguments.      | 100% offline execution; zero paid external API spend.                                                           |
+| **1:15 – 2:00** | **Evaluation Lab** (`#evaluation-lab`)       | Walk through Phase 5D live Fireworks validation (100 cases), Phase 2F (72 cases), and Phase 2E holdout (56 cases). | Phase 5D is frozen benchmark evaluation; Phase 2A is in-repo fixture; mock accuracy does not measure real LLMs. |
+| **2:00 – 2:35** | **Audit Explorer** (`#audit-explorer`)       | Demonstrate SHA-256 canonical JSON case chains (`Case Seq #`), secret masking, and detail drawer.                  | Local chain validates in-situ integrity per case; not an external Rekor notary ledger.                          |
+| **2:35 – 3:00** | **Security Findings** (`#security-findings`) | Review 8 open findings, 6 locked live candidates, and Phase 5D live inference vs Phase 4B canary.                  | 6 live candidates remain untouched offline; production authentication absent.                                   |
 
 ---
 
@@ -78,26 +78,30 @@
 ### Step 3 (1:15 – 2:00): Evaluation Lab & Transparent Denominators (`#evaluation-lab`)
 
 - **Navigation:** Return to browser and press `2` (or click `Evaluation Lab` in sidebar).
-- **Visual Focus:** The three dataset tabs: Phase 2F, Phase 2E, and Phase 2A.
+- **Visual Focus:** The four dataset tabs: Phase 5D, Phase 2F, Phase 2E, and Phase 2A.
 - **Presenter Action:**
-  1. Click `Phase 2A Internal Validation Fixture (68 Samples)` (`#tab-p2a`).
-  2. Click `Phase 2E Frozen Holdout Benchmark (56 Cases)` (`#tab-p2e`).
+  1. Highlight `Phase 5D Live Fireworks (100 Cases)` (`#tab-p5d`).
+  2. Toggle mode pills: `Mode C: Calibrated Gateway`, `Mode B: Semantic-Only`, and `Mode A: Deterministic-Only`.
   3. Click `Phase 2F Development Comparison (72 Samples)` (`#tab-p2f`).
+  4. Click `Phase 2E Frozen Holdout Benchmark (56 Cases)` (`#tab-p2e`).
 
 #### Spoken Presentation:
 
-> _"Rather than claiming 100% prompt injection detection, we disclose transparent empirical benchmarks across three datasets:_
+> _"Rather than claiming 100% prompt injection detection across all unknown threats, we disclose transparent empirical benchmarks across our evaluation phases:_
 >
-> _First, in **Phase 2A** across 68 curated validation samples (`tests/fixtures/holdout-corpus.json`): Attack Precision is **93.8%**, but Attack Recall is **46.9%** with 17 false negatives. Complex multilingual and encoded attacks bypassed static rules. Overall accuracy is 73.5%. This is an internal validation fixture, not an external blind holdout._
+> _First, in **Phase 5D**, we validated calibrated three-outcome routing using live Fireworks API inference (`muse-spark-open`) on our 100-case frozen benchmark (SHA-256: `97383d11...`):_
+> _- **Mode C (Calibrated Combined)** intercepted **50 / 50 malicious attacks (100% recall)** with **0 / 35 false positives (0% FPR)** on clearly benign queries, achieving 85.0% accuracy._
+> _- Compare this to **Mode A (deterministic-only)**, which missed 44/50 attacks (12% recall), and **Mode B (semantic-only)**, which missed 6/50 attacks (88% recall)._
+> _- Total live inference spend was **$0.169 USD** across 91 live requests and 82,312 tokens, strictly respecting our $2.00 hard budget ceiling with a measured p50 latency of 7.38s._
 >
-> _Second, in **Phase 2E**, we evaluated 56 holdout cases. We explicitly disclose that 6 operational stress cases (testing network timeouts and payload truncation) are excluded from binary classification scoring because their predicted status is null. Across the 50 scored classification samples, recall was 62.1% with zero false positives._
+> _Second, in **Phase 2F**, notice the opposite trade-off: in deterministic-only mode, fail-closed policy achieved 100% recall, but blocked all 20 benign cases (100% false-positive rate). Security guardrails always present availability trade-offs._
 >
-> _Third, in **Phase 2F**, we evaluate 72 development samples (68 scored). Notice the trade-off: in deterministic-only mode, fail-closed policy achieved 100% recall, but blocked all 20 benign cases (100% false-positive rate). Security guardrails always present availability trade-offs."_
+> _Third, in **Phase 2E**, across 56 holdout cases, we explicitly disclose that 6 operational stress cases (testing network timeouts and payload truncation) are excluded from binary classification scoring because their predicted status is null."_
 
 #### Mandatory Disclosures to Highlight:
 
-- Phase 2A is in-repo fixture data, not an independently blinded external benchmark.
-- Mock-semantic evaluations test deterministic orchestration and policy routing, not real Meta Muse LLM weights.
+- Phase 5D evaluated real cloud inference on a frozen synthetic validation benchmark, not unconstrained production MCP traffic.
+- Mock-semantic evaluations test deterministic orchestration and policy routing, not real LLM accuracy.
 
 ---
 
