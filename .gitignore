@@ -58,6 +58,7 @@ node_modules/
 
 # Build outputs
 dist/
+.vercel
 
 # pnpm
 .pnpm-store
