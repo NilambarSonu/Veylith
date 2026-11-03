@@ -3,7 +3,8 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 1. Mobile Menu Toggle
   const mobileBtn = document.querySelector('.mobile-menu-btn');
-  const navLinks = document.querySelector('.nav-links');
+  const navLinks =
+    document.querySelector('.split-nav-container') || document.querySelector('.nav-links');
 
   if (mobileBtn && navLinks) {
     mobileBtn.addEventListener('click', () => {
@@ -44,7 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 3. Clipboard Copy Handling
-  const copyButtons = document.querySelectorAll('.copy-btn, .code-copy-btn');
+  const copyButtons = document.querySelectorAll('.copy-btn, .code-copy-btn, .terminal-copy-btn');
 
   copyButtons.forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -52,9 +53,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (!textToCopy) {
         // Fallback: look for sibling pre code or nearest code-container pre
-        const container = btn.closest('.code-container, .terminal-row');
+        const container = btn.closest('.code-container, .terminal-row, .magic-terminal-card');
         if (container) {
-          const pre = container.querySelector('pre, .terminal-code');
+          const pre = container.querySelector('pre, .terminal-code, .terminal-typing-text');
           if (pre) {
             textToCopy = pre.innerText.trim();
           }
@@ -78,4 +79,67 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   });
+
+  // 4. KokonutUI Split Navigation Interaction
+  const splitNavList = document.querySelector('.split-nav-list');
+  const splitItems = document.querySelectorAll('.split-nav-item');
+
+  if (splitNavList && splitItems.length > 0) {
+    splitItems.forEach((item, idx) => {
+      item.addEventListener('mouseenter', () => {
+        splitItems.forEach((other, oIdx) => {
+          if (oIdx < idx) {
+            other.style.transform = 'translateX(-3px)';
+          } else if (oIdx > idx) {
+            other.style.transform = 'translateX(3px)';
+          } else {
+            other.style.transform = 'translateX(0) scale(1.02)';
+          }
+        });
+      });
+
+      item.addEventListener('mouseleave', () => {
+        splitItems.forEach((other) => {
+          other.style.transform = '';
+        });
+      });
+
+      item.addEventListener('click', () => {
+        splitItems.forEach((other) => other.classList.remove('active'));
+        item.classList.add('active');
+      });
+    });
+  }
+
+  // 5. Magic UI Terminal Sequential Typing & Step Animation
+  const typingEl = document.querySelector('.terminal-typing-text');
+  const stepLines = document.querySelectorAll('.terminal-step-line');
+  const commandToType =
+    'npx veylith -- npx -y @modelcontextprotocol/server-filesystem ~/mcp-sandbox';
+
+  if (typingEl) {
+    let charIdx = 0;
+    typingEl.textContent = '';
+
+    function typeChar() {
+      if (charIdx < commandToType.length) {
+        typingEl.textContent += commandToType.charAt(charIdx);
+        charIdx++;
+        setTimeout(typeChar, 28);
+      } else {
+        // Once command is typed, sequentially reveal each execution step
+        revealSteps(0);
+      }
+    }
+
+    function revealSteps(stepIdx) {
+      if (stepIdx < stepLines.length) {
+        stepLines[stepIdx].classList.add('visible');
+        setTimeout(() => revealSteps(stepIdx + 1), 220);
+      }
+    }
+
+    // Trigger typing slightly after initial mount
+    setTimeout(typeChar, 600);
+  }
 });

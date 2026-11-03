@@ -10,9 +10,10 @@
     />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="stylesheet" href="styles.css" />
+    <script src="cloud-sky.js" defer></script>
   </head>
   <body>
-    <!-- 1. Top Navigation -->
+    <!-- 1. Top Navigation with KokonutUI Split Nav & Magic UI Shiny Button -->
     <header class="site-header">
       <div class="container header-inner">
         <a href="#" class="brand-link" aria-label="Veylith Home">
@@ -35,42 +36,37 @@
           <span class="badge-pill-alpha">v0.1.0-alpha.1</span>
         </a>
 
-        <nav aria-label="Main Navigation">
-          <ul class="nav-links">
-            <li><a href="#problem">The Problem</a></li>
-            <li><a href="#how-it-works">How It Works</a></li>
-            <li><a href="#features">Features</a></li>
-            <li><a href="#research">Research</a></li>
-            <li><a href="#quickstart">Quickstart</a></li>
+        <!-- KokonutUI Split Nav Bar -->
+        <nav class="split-nav-container" aria-label="Main Navigation">
+          <ul class="split-nav-list" id="split-nav">
             <li>
-              <a
-                href="https://github.com/NilambarSonu/Veylith/blob/feat/public-productization/docs/integration/QUICKSTART.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                >Docs</a
-              >
+              <a href="#" class="split-nav-item active" data-index="0"><span>Home</span></a>
+            </li>
+            <li>
+              <a href="#how-it-works" class="split-nav-item" data-index="1"><span>Work</span></a>
+            </li>
+            <li>
+              <a href="#problem" class="split-nav-item" data-index="2"><span>Notes</span></a>
+            </li>
+            <li>
+              <a href="#features" class="split-nav-item" data-index="3"><span>Blog</span></a>
+            </li>
+            <li>
+              <a href="#quickstart" class="split-nav-item" data-index="4"><span>About</span></a>
             </li>
           </ul>
         </nav>
 
+        <!-- Right: Magic UI Shiny Button for GitHub Repo -->
         <div class="header-actions">
-          <a
-            href="https://www.npmjs.com/package/veylith"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="btn btn-secondary btn-sm"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M1.5 0h21v24h-21V0zm18.667 21.333V2.667H3.833v18.666h9.334V8h5.333v13.333h1.667zM10.5 8h-4v10.667h4V8z"/>
-            </svg>
-            npm
-          </a>
           <a
             href="https://github.com/NilambarSonu/Veylith"
             target="_blank"
             rel="noopener noreferrer"
-            class="btn btn-secondary btn-sm"
+            class="shiny-button"
+            aria-label="GitHub Repository"
           >
+            <span class="shiny-glow"></span>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path
                 fill-rule="evenodd"
@@ -78,7 +74,7 @@
                 d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
               />
             </svg>
-            GitHub
+            <span>SHINY BUTTON</span>
           </a>
           <button class="mobile-menu-btn" aria-label="Toggle navigation menu" aria-expanded="false">
             <svg
@@ -101,92 +97,158 @@
     </header>
 
     <main>
-      <!-- 2. Hero Section -->
+      <!-- 2. Hero Section with OriginKit Cloud Sky -->
       <section class="hero-section">
+        <!-- OriginKit WebGL Cloud Sky Canvas -->
+        <canvas id="cloud-sky-canvas" class="cloud-sky-canvas" aria-hidden="true"></canvas>
+
         <div class="container hero-content">
           <div class="hero-badge-wrap">
             <span class="badge badge-sky">Meta Global AI Hackathon 2026 • Startup Track</span>
             <span class="badge badge-dark">Research Alpha v0.1.0-alpha.1</span>
           </div>
+
+          <!-- Magic UI Text Highlighter -->
           <h1 class="hero-title">
-            The Security Boundary for
-            <span class="hero-title-gradient">AI Agents</span>
+            The
+            <span class="highlighter-underline"
+              ><span class="hl-text">Security Boundary</span
+              ><svg viewBox="0 0 300 20" fill="none" preserveAspectRatio="none">
+                <path
+                  d="M 4 14 C 70 8, 200 6, 296 15"
+                  stroke="#FF9800"
+                  stroke-width="5"
+                  stroke-linecap="round"
+                /></svg
+            ></span>
+            for
+            <span class="highlighter-box"
+              ><span class="hl-text">AI Agents</span
+              ><svg viewBox="0 0 200 52" preserveAspectRatio="none">
+                <path
+                  d="M 6 26 C 18 10, 185 8, 194 24 C 185 42, 22 46, 6 26 Z"
+                  fill="#87CEFA"
+                  fill-opacity="0.6"
+                /></svg
+            ></span>
           </h1>
+
           <p class="hero-subtitle">
             An inline security gateway and policy enforcement control plane for Model Context
             Protocol (MCP). Prevent prompt injection, intercept destructive commands, and generate
             tamper-evident audit logs with zero upstream code changes.
           </p>
+
+          <!-- Magic UI Shimmer Button & Shiny Button -->
           <div class="hero-actions">
-            <a href="#quickstart" class="btn btn-primary">Quickstart Guide</a>
+            <a href="#quickstart" class="shimmer-button" aria-label="Shimmer Button">
+              <div class="shimmer-spark-container">
+                <div class="shimmer-spark"></div>
+              </div>
+              <div class="shimmer-backdrop"></div>
+              <span class="shimmer-content">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+                Shimmer Button
+              </span>
+            </a>
             <a
               href="https://www.npmjs.com/package/veylith"
               target="_blank"
               rel="noopener noreferrer"
-              class="btn btn-secondary"
-              >npm Package</a
+              class="shiny-button"
+              style="padding: 13px 26px; font-size: 0.95rem"
+              aria-label="Shiny Button"
             >
-            <a
-              href="https://github.com/NilambarSonu/Veylith"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="btn btn-secondary"
-              >View on GitHub</a
-            >
+              <span class="shiny-glow"></span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path
+                  d="M1.5 0h21v24h-21V0zm18.667 21.333V2.667H3.833v18.666h9.334V8h5.333v13.333h1.667zM10.5 8h-4v10.667h4V8z"
+                />
+              </svg>
+              <span>SHINY BUTTON</span>
+            </a>
           </div>
 
-          <!-- Hero Terminal Card -->
-          <div class="hero-terminal-card" aria-label="Terminal Code Preview">
-            <div class="terminal-header">
+          <!-- Magic UI Terminal Card (Mac-Style Light Frosted Terminal) -->
+          <div class="magic-terminal-card" aria-label="Terminal Code Preview">
+            <div class="magic-terminal-header">
               <div class="terminal-dots">
                 <span class="dot dot-red"></span>
                 <span class="dot dot-amber"></span>
                 <span class="dot dot-green"></span>
               </div>
               <span class="terminal-title">bash — veylith stdio proxy</span>
-              <span></span>
+              <button
+                class="terminal-copy-btn"
+                data-copy="npx veylith -- npx -y @modelcontextprotocol/server-filesystem ~/mcp-sandbox"
+                aria-label="Copy CLI command"
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                Copy
+              </button>
             </div>
-            <div class="terminal-body">
-              <div class="terminal-row">
-                <span class="terminal-code"
-                  >npx veylith -- npx -y @modelcontextprotocol/server-filesystem /workspace</span
+            <div class="magic-terminal-body">
+              <div class="terminal-cmd-row">
+                <span class="terminal-prompt-sym">&gt;</span>
+                <span class="terminal-typing-text"
+                  >npx veylith -- npx -y @modelcontextprotocol/server-filesystem ~/mcp-sandbox</span
                 >
-                <button
-                  class="copy-btn"
-                  data-copy="npx veylith -- npx -y @modelcontextprotocol/server-filesystem /workspace"
-                  aria-label="Copy CLI command"
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                  Copy
-                </button>
+                <span class="terminal-cursor"></span>
               </div>
-              <div class="terminal-log-output">
-                <div class="log-entry">
-                  <span class="log-status-dot"></span>
-                  <span>[veylith-stdio] Mode: Standalone Subprocess | Fail-Closed: true</span>
+              <div class="terminal-steps-list">
+                <div class="terminal-step-line">
+                  <span class="terminal-check">&#10004;</span>
+                  <span>Preflight checks.</span>
                 </div>
-                <div class="log-entry">
-                  <span class="log-status-dot"></span>
-                  <span
-                    >[policy-engine] Deterministic Invariants active (&lt;0.05ms
-                    microbenchmarks)</span
-                  >
+                <div class="terminal-step-line">
+                  <span class="terminal-check">&#10004;</span>
+                  <span>Verifying MCP protocol. Found 14 active tools.</span>
                 </div>
-                <div class="log-entry">
-                  <span class="log-status-dot"></span>
-                  <span>[audit-chain] SHA-256 canonical event chain initialized from genesis</span>
+                <div class="terminal-step-line">
+                  <span class="terminal-check">&#10004;</span>
+                  <span>Stage 1: Discovery Prompt-Injection Shield active.</span>
+                </div>
+                <div class="terminal-step-line">
+                  <span class="terminal-check">&#10004;</span>
+                  <span>Stage 2: Inline Argument Policy Engine ready (&lt;0.05ms).</span>
+                </div>
+                <div class="terminal-step-line">
+                  <span class="terminal-check">&#10004;</span>
+                  <span>Stage 3: Response Quarantine &amp; Canary Leak Redactor armed.</span>
+                </div>
+                <div class="terminal-step-line">
+                  <span class="terminal-check">&#10004;</span>
+                  <span>Writing tamper-evident SHA-256 audit genesis log.</span>
+                </div>
+                <div
+                  class="terminal-step-line"
+                  style="margin-top: 4px; color: #0284c7; font-weight: 600"
+                >
+                  <span class="terminal-status-dot">&bull;</span>
+                  <span>Veylith Security Gateway listening on stdio.</span>
                 </div>
               </div>
             </div>
