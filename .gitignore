@@ -77,9 +77,10 @@ Thumbs.db
 *.swo
 *~
 
-# Private key files
+# Private key and credential files
 *.pem
 *.key
+.npmrc
 
 # Local logs
 local-logs/
