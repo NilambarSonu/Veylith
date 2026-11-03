@@ -9,8 +9,8 @@
     "node": ">=20.0.0"
   },
   "bin": {
-    "veylith": "./bin/veylith.js",
-    "veylith-stdio": "./bin/veylith.js"
+    "veylith": "bin/veylith.js",
+    "veylith-stdio": "bin/veylith.js"
   },
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -34,7 +34,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/NilambarSonu/Veylith.git"
+    "url": "git+https://github.com/NilambarSonu/Veylith.git"
   },
   "homepage": "https://github.com/NilambarSonu/Veylith#readme",
   "bugs": {
