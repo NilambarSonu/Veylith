@@ -56,7 +56,7 @@ node packages/veylith/bin/veylith.js --help
 ---
 
 ## Release Verification & Checksums
-- `veylith-0.1.0-alpha.1.tgz` (SHA-256: `36708eb2cf0e6010568072dd72cc54d3f86bcf4d`)
+- `veylith-0.1.0-alpha.1.tgz` (SHA-256: `79c449eb8f341165f8602a1c4d4f0553a000aa48c3fdc95b682312b2b64003e1`)
 - Frozen Dataset Hashes Verified:
   - `security-lab/v1/live-reserve.json`: `e4f918504d7a54bf89a4f599fe6c6a2ef7de9a42c86909613c80de5f826ee276`
   - `security-lab/phase-5c/validation-dataset.json`: `97383d1180b217130b270c9429dd94e5f6af752e4e92b14f12dfd5326c04df62`
