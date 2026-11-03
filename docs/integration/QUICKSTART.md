@@ -43,9 +43,9 @@
 
 ## 3. Installation & Execution
 
-### Option A: Zero-Install via `npx` (Recommended for npm Package)
+### Option A: Zero-Install via `npx` (Recommended)
 
-Once published to npm or available in your registry:
+Run directly from the npm registry without global installation:
 
 ```bash
 # 1. Create a safe sandbox directory for your MCP filesystem server

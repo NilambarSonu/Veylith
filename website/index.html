@@ -911,10 +911,8 @@ echo "Secure workspace notes" > "$HOME/mcp-sandbox/notes.txt"
 # 2. Run any stdio MCP server directly through Veylith
 npx veylith -- npx -y @modelcontextprotocol/server-filesystem "$HOME/mcp-sandbox"
 
-# Or evaluate from source before npm sync:
-# git clone -b feat/public-productization https://github.com/NilambarSonu/Veylith.git
-# cd Veylith && pnpm install && pnpm build
-# node packages/veylith/bin/veylith.js -- npx -y @modelcontextprotocol/server-filesystem "$HOME/mcp-sandbox"</code></pre>
+# Or install globally:
+npm install -g veylith</code></pre>
               </div>
             </div>
 
