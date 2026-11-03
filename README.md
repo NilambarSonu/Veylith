@@ -17,8 +17,12 @@
 Get started immediately with zero installation using `npx`:
 
 ```bash
-# Wrap any MCP server command with Veylith
-npx veylith -- npx -y @modelcontextprotocol/server-filesystem /path/to/allowed/directory
+# 1. Create a safe sandbox directory for tools
+mkdir -p "$HOME/mcp-sandbox"
+echo "Secure workspace notes" > "$HOME/mcp-sandbox/notes.txt"
+
+# 2. Wrap any MCP server command with Veylith
+npx veylith -- npx -y @modelcontextprotocol/server-filesystem "$HOME/mcp-sandbox"
 ```
 
 Or install the CLI globally:
@@ -43,14 +47,14 @@ Add to `claude_desktop_config.json`:
         "npx",
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/Users/username/Desktop"
+        "/Users/yourusername/mcp-sandbox"
       ]
     }
   }
 }
 ```
 
-👉 **For complete Cursor setup, custom TypeScript agents, and step-by-step verification, see the [Developer Quickstart Guide](docs/integration/QUICKSTART.md).**
+👉 **For complete Cursor setup, custom TypeScript agents, and step-by-step verification, see the [Developer Quickstart Guide](docs/integration/QUICKSTART.md) and [Changelog](CHANGELOG.md).**
 
 ---
 

@@ -29,7 +29,12 @@ Veylith sits as a transparent proxy between AI agent clients (Claude Desktop, Cu
 Wrap any existing stdio MCP server command with `veylith` using `--`:
 
 ```bash
-npx veylith -- npx -y @modelcontextprotocol/server-filesystem /path/to/allowed/directory
+# 1. Create a safe sandbox directory for tools
+mkdir -p "$HOME/mcp-sandbox"
+echo "Secure workspace notes" > "$HOME/mcp-sandbox/notes.txt"
+
+# 2. Run Veylith wrapping the official filesystem MCP server
+npx veylith -- npx -y @modelcontextprotocol/server-filesystem "$HOME/mcp-sandbox"
 ```
 
 ### 2. Global Installation
@@ -38,7 +43,7 @@ npx veylith -- npx -y @modelcontextprotocol/server-filesystem /path/to/allowed/d
 npm install -g veylith
 
 # Run directly
-veylith -- npx -y @modelcontextprotocol/server-filesystem /path/to/allowed/directory
+veylith -- npx -y @modelcontextprotocol/server-filesystem "$HOME/mcp-sandbox"
 ```
 
 ---
@@ -61,7 +66,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
         "npx",
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/Users/username/Desktop"
+        "/Users/yourusername/mcp-sandbox"
       ]
     }
   }
@@ -84,7 +89,7 @@ Add to your project's `.cursor/mcp.json`:
         "npx",
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/path/to/allowed/directory"
+        "/Users/yourusername/mcp-sandbox"
       ]
     }
   }

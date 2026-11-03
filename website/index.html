@@ -44,7 +44,7 @@
             <li><a href="#quickstart">Quickstart</a></li>
             <li>
               <a
-                href="https://github.com/NilambarSonu/Veylith/blob/main/docs/integration/QUICKSTART.md"
+                href="https://github.com/NilambarSonu/Veylith/blob/feat/public-productization/docs/integration/QUICKSTART.md"
                 target="_blank"
                 rel="noopener noreferrer"
                 >Docs</a
@@ -904,12 +904,17 @@
             <div id="tab-npx" class="tab-content active" role="tabpanel">
               <div class="code-container">
                 <button class="code-copy-btn" aria-label="Copy code">Copy</button>
-                <pre><code># Run any stdio MCP server directly through Veylith
-npx veylith -- npx -y @modelcontextprotocol/server-filesystem /path/to/allowed/directory
+                <pre><code># 1. Create a safe sandbox directory for tools
+mkdir -p "$HOME/mcp-sandbox"
+echo "Secure workspace notes" > "$HOME/mcp-sandbox/notes.txt"
 
-# Or install globally
-npm install -g veylith
-veylith -- npx -y @modelcontextprotocol/server-filesystem /path/to/allowed/directory</code></pre>
+# 2. Run any stdio MCP server directly through Veylith
+npx veylith -- npx -y @modelcontextprotocol/server-filesystem "$HOME/mcp-sandbox"
+
+# Or evaluate from source before npm sync:
+# git clone -b feat/public-productization https://github.com/NilambarSonu/Veylith.git
+# cd Veylith && pnpm install && pnpm build
+# node packages/veylith/bin/veylith.js -- npx -y @modelcontextprotocol/server-filesystem "$HOME/mcp-sandbox"</code></pre>
               </div>
             </div>
 
@@ -929,7 +934,7 @@ veylith -- npx -y @modelcontextprotocol/server-filesystem /path/to/allowed/direc
         "npx",
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/Users/username/Desktop"
+        "/Users/yourusername/mcp-sandbox"
       ]
     }
   }
@@ -953,7 +958,7 @@ veylith -- npx -y @modelcontextprotocol/server-filesystem /path/to/allowed/direc
         "npx",
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/path/to/project"
+        "/Users/yourusername/mcp-sandbox"
       ]
     }
   }
@@ -972,7 +977,7 @@ const transport = new StdioClientTransport({
   command: "npx",
   args: [
     "-y", "veylith", "--",
-    "npx", "-y", "@modelcontextprotocol/server-filesystem", "/allowed/dir"
+    "npx", "-y", "@modelcontextprotocol/server-filesystem", "/Users/yourusername/mcp-sandbox"
   ]
 });
 
@@ -980,7 +985,7 @@ const client = new Client({ name: "secure-agent", version: "1.0.0" }, { capabili
 await client.connect(transport);
 
 // Invocations are automatically inspected & sanitized
-const res = await client.callTool({ name: "read_file", arguments: { path: "doc.txt" } });</code></pre>
+const res = await client.callTool({ name: "read_file", arguments: { path: "/Users/yourusername/mcp-sandbox/notes.txt" } });</code></pre>
               </div>
             </div>
           </div>
@@ -1066,10 +1071,18 @@ const res = await client.callTool({ name: "read_file", arguments: { path: "doc.t
               <li><a href="#quickstart">Quickstart Guide</a></li>
               <li>
                 <a
-                  href="https://github.com/NilambarSonu/Veylith/blob/main/docs/integration/QUICKSTART.md"
+                  href="https://github.com/NilambarSonu/Veylith/blob/feat/public-productization/docs/integration/QUICKSTART.md"
                   target="_blank"
                   rel="noopener noreferrer"
                   >Full Documentation</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/NilambarSonu/Veylith/blob/feat/public-productization/CHANGELOG.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >Changelog</a
                 >
               </li>
               <li>
