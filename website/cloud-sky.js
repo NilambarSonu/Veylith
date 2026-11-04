@@ -1,3 +1,4 @@
+/* global document, window, console, performance, requestAnimationFrame */
 /**
  * OriginKit Cloud Sky WebGL Engine
  * Ported from OriginKit CloudSky component (component_code_prompts.txt)

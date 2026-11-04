@@ -84,6 +84,7 @@ Thumbs.db
 
 # Local logs
 local-logs/
+component_code_prompts.txt
 
 # Reproducible local adversarial runs; reviewed snapshots live under security-lab/evidence/
 /security-lab/results/
