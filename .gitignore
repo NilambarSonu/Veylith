@@ -58,6 +58,7 @@ node_modules/
 
 # Build outputs
 dist/
+.vercel
 
 # pnpm
 .pnpm-store
@@ -76,12 +77,14 @@ Thumbs.db
 *.swo
 *~
 
-# Private key files
+# Private key and credential files
 *.pem
 *.key
+.npmrc
 
 # Local logs
 local-logs/
+component_code_prompts.txt
 
 # Reproducible local adversarial runs; reviewed snapshots live under security-lab/evidence/
 /security-lab/results/
