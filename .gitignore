@@ -92,3 +92,4 @@ component_code_prompts.txt
 
 # Phase 2F runtime measurements; reviewed snapshots are committed under evidence/
 /security-lab/phase-2f/after/
+.env*
