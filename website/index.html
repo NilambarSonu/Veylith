@@ -19,6 +19,12 @@
     <meta property="og:url" content="https://veylith-jade.vercel.app/" />
     <meta name="twitter:card" content="summary" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..700;1,14..32,300..700&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,500;0,600;0,700;0,800;1,500;1,600;1,700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="styles.css" />
     <script src="cloud-sky.js" defer></script>
     <script src="pulseroll.js" defer></script>
@@ -450,7 +456,8 @@
                     <span class="code-tag-badge badge-threat">SSRF Probe</span>
                   </div>
                   <pre class="code-snippet-pre"><code><span class="c-fn">http_get</span>({
-  <span class="c-key">"url"</span>: <span class="c-danger">"http://169.254.169.254"</span>
+  <span class="c-key">"url"</span>:
+    <span class="c-danger">"http://169.254.169.254"</span>
 })</code></pre>
                 </div>
               </div>
